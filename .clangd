@@ -1,0 +1,7 @@
+# .clangd
+CompileFlags:
+  Add: [-Wall]
+Diagnostics:
+  ClangTidy:
+    Add: [performance*, modernize*]
+    Remove: [modernize-use-trailing-return-type]

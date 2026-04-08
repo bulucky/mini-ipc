@@ -1,0 +1,25 @@
+Language: Cpp
+Standard: c++17
+BasedOnStyle: Google
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+PointerAlignment: Left
+ColumnLimit: 0
+MaxEmptyLinesToKeep: 100
+KeepEmptyLinesAtTheStartOfBlocks: true
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: Always
+AllowShortLoopsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Always
+AllowShortLambdasOnASingleLine: All
+AlignConsecutiveMacros: true
+IndentCaseLabels: true
+SortIncludes: Never
+SpacesBeforeTrailingComments: 1
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 1
+ReflowComments: true
