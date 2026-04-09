@@ -9,10 +9,10 @@ namespace mini_ipc {
 
 class Node {
 public:
-    explicit Node(const std::string& name);
+    explicit Node(const std::string& node_name);
     ~Node();
 
-    // 禁用拷贝
+    // 禁用拷贝--单例
     Node(const Node&) = delete;
     Node& operator=(const Node&) = delete;
 

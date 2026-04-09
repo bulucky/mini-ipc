@@ -18,6 +18,6 @@ private:
     class Impl;
     std::shared_ptr<Impl> pimpl_;
 
-    explicit Publisher(std::shared_ptr<Impl> Impl);
+    explicit Publisher(std::shared_ptr<Impl> impl);
 };
 } // namespace mini_ipc
