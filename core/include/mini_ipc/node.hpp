@@ -12,7 +12,7 @@ public:
     explicit Node(const std::string& node_name);
     ~Node();
 
-    // 禁用拷贝--单例
+    // 禁用拷贝--单例模式
     Node(const Node&) = delete;
     Node& operator=(const Node&) = delete;
 
@@ -25,6 +25,8 @@ public:
     void spin();
 
 private:
+    std::string node_name_;
+
     class Impl;
     std::unique_ptr<Impl> pimpl_;
 };

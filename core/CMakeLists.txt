@@ -8,3 +8,5 @@ target_include_directories(mini_ipc_core
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+
+add_subdirectory(examples)
