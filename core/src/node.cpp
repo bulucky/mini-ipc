@@ -94,7 +94,8 @@ public:
         unsigned short assigned_port = ntohs(server_addr.sin_port);
 
         // 向守护进程注册
-        std::string reg_msg = "PUB" + topic_name + " " + std::to_string(assigned_port);
+        // PUB <topi>c <port>
+        std::string reg_msg = "PUB " + topic_name + " " + std::to_string(assigned_port);
         talk_to_discovery_daemon(reg_msg);
 
         // TODO: 将server_fd加入epoll_fd_
@@ -105,7 +106,8 @@ public:
 
     bool init_subscriber(const std::string& topic_name) {
         // 向守护进程查询话题端口信息
-        std::string port_info = talk_to_discovery_daemon("SUB" + topic_name);
+        // SUB <topic>
+        std::string port_info = talk_to_discovery_daemon("SUB " + topic_name);
         if (port_info == "NOT_FOUND" || port_info.empty()) {
             std::cerr << "[Node: " << name_ << "] Topic '" << topic_name << "' not found!" << "\n";
             return false;
