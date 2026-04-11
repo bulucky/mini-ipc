@@ -19,7 +19,7 @@ public:
     // 创建订阅者、发布者
     Publisher create_publisher(const std::string& topic_name);
     Subscriber create_subscriber(const std::string& topic_name,
-                                 Subscriber::CallbackType);
+                                 Subscriber::CallbackType& callback);
 
     // 启动事件循环、阻塞线程、处理回调
     void spin();

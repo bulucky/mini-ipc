@@ -153,18 +153,18 @@ Publisher Node::create_publisher(const std::string& topic_name) {
         std::cout << "[Node: " << node_name_ << "]" << "Create Publisher failed" << "\n";
         // TODO: 错误处理
     }
-    return Publisher();
+    return Publisher{};
 }
 
 Subscriber Node::create_subscriber(
     const std::string& topic_name,
-    Subscriber::CallbackType callback) {
+    Subscriber::CallbackType& callback) {
     if (!pimpl_->init_subscriber(topic_name)) {
         std::cout << "[Node: " << node_name_ << "]" << "Create Subscriber failed" << "\n";
         // TODO: 错误处理
     }
 
-    return Subscriber();
+    return Subscriber{};
 }
 
 // 接口转发
