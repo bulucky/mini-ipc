@@ -9,6 +9,8 @@ namespace mini_ipc {
 
 class Node {
 public:
+    std::string node_name_;
+
     explicit Node(const std::string& node_name);
     ~Node();
 
@@ -19,14 +21,12 @@ public:
     // 创建订阅者、发布者
     Publisher create_publisher(const std::string& topic_name);
     Subscriber create_subscriber(const std::string& topic_name,
-                                 Subscriber::CallbackType& callback);
+                                 Subscriber::CallbackType callback);
 
     // 启动事件循环、阻塞线程、处理回调
     void spin();
 
 private:
-    std::string node_name_;
-
     class Impl;
     std::unique_ptr<Impl> pimpl_;
 };
