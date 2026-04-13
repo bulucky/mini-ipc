@@ -239,7 +239,7 @@ public:
                         // 触发回调函数
                         std::string msg{buffer};
                         subscriber_callbacks[active_fd](msg);
-                    } else if (read_bytes == 0) {
+                    } else if (read_bytes == 0) { // EOF, 另一端关闭
                         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
                         close(active_fd);
                         subscriber_callbacks.erase(active_fd);
