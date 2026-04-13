@@ -74,9 +74,9 @@ int main(int argc, char const* argv[]) {
             }
 
             std::cout << "[Discovery] Queried: " << topic << " -> " << port << "\n";
-
-            close(client_fd);
         }
+
+        close(client_fd);
     }
 
     return 0;

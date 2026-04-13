@@ -33,7 +33,10 @@ public:
 
     void publish(const std::string& msg) {
         for (auto sub_fd : sub_fds_) {
-            write(sub_fd, msg.c_str(), msg.length());
+            if (write(sub_fd, msg.c_str(), msg.length()) == -1) {
+                // [TODO]：错误处理
+                continue;
+            }
         }
     }
 };
@@ -212,7 +215,7 @@ public:
 
     void spin() {
         // [TODO]: epoll_wait 循环
-        struct epoll_event events[10];
+        struct epoll_event events[10]; // NOLINT
         std::cout << "[Node: " << name_ << "] Spinning and waiting for events...\n";
         while (true) {
             int event_num = epoll_wait(epoll_fd_, events, 10, -1);

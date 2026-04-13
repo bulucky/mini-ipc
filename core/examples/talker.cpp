@@ -24,5 +24,7 @@ int main(int argc, char const* argv[]) {
         std::this_thread::sleep_for(1s);
     }
 
+    spin_thread.join();
+
     return 0;
 }
