@@ -8,6 +8,7 @@
 
 #include <cstring>
 
+#include <mutex>
 #include <utility>
 #include <iostream>
 #include <unordered_map>
@@ -20,6 +21,7 @@ public:
     std::string topic_name_;
     int server_fd_;
     std::vector<int> sub_fds_;
+    std::mutex sub_fds_mutex_;
 
     Impl(std::string topic_name, int fd)
         : topic_name_(std::move(topic_name)), server_fd_(fd) {}
@@ -32,7 +34,8 @@ public:
     }
 
     void publish(const std::string& msg) {
-        for (auto sub_fd : sub_fds_) {
+        std::lock_guard<std::mutex> lock(sub_fds_mutex_);
+        for (const auto sub_fd : sub_fds_) {
             if (write(sub_fd, msg.c_str(), msg.length()) == -1) {
                 // [TODO]：错误处理
                 continue;
@@ -87,7 +90,12 @@ public:
         std::cout << "Node Impl destroyed for: " << name_ << "\n";
     }
 
-    // 与discovry_daemon进行一次短连接通信
+    /**
+     * @brief:  与发现进程(全局唯一，用于维护话题名与端口的映射表)进行一次短连接
+     *          用于注册(发布者)或查询(订阅者)话题名与端口的映射关系
+     * @param:  const std::string& msg
+     * @return: std::string "" --> 注册成功，buffer --> 端口
+     */
     std::string talk_to_discovery_daemon(const std::string& msg) {
         int sc_fd;
         if ((sc_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -125,7 +133,11 @@ public:
         return std::string{buffer};
     }
 
-    // 初始化发布者
+    /**
+     * @brief:  初始化发布者资源
+     * @param:  const std::string& topic_name 话题名
+     * @return: std::shared_ptr<Publisher::Impl> 发布者的impl的地址
+     */
     std::shared_ptr<Publisher::Impl> init_publisher(const std::string& topic_name) {
         int server_fd;
         if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -171,6 +183,12 @@ public:
         return pub_impl;
     }
 
+    /**
+     * @brief:  初始化订阅者资源
+     * @param:  const std::string& topic_name 话题名
+     * @param:  Subscriber::CallbackType callback 回调函数
+     * @return: std::shared_ptr<Publisher::Impl> 订阅者的impl的地址
+     */
     std::shared_ptr<Subscriber::Impl> init_subscriber(
         const std::string& topic_name, Subscriber::CallbackType callback) {
         // 向守护进程查询话题端口信息
@@ -213,6 +231,9 @@ public:
         return std::make_shared<Subscriber::Impl>(client_fd);
     }
 
+    /**
+     * @brief:  节点的impl处理回调
+     */
     void spin() {
         // [TODO]: epoll_wait 循环
         struct epoll_event events[10]; // NOLINT
@@ -226,6 +247,7 @@ public:
                 if (publishers_.find(active_fd) != publishers_.end()) {
                     int new_sub_fd;
                     if ((new_sub_fd = accept(active_fd, nullptr, nullptr)) != -1) {
+                        std::lock_guard<std::mutex> lock(publishers_[active_fd]->sub_fds_mutex_);
                         publishers_[active_fd]->sub_fds_.push_back(new_sub_fd);
                         std::cout << "[Node: " << name_ << "] Accepted new subscriber connection.\n";
                     }
@@ -251,12 +273,21 @@ public:
     }
 };
 
+/**
+ * @brief:  节点构造函数
+ * @param:  const std::string& node_name 话题名
+ */
 Node::Node(const std::string& node_name)
     : node_name_(node_name), pimpl_(std::make_unique<Impl>(node_name)) {
 }
 
 Node::~Node() = default;
 
+/**
+ * @brief:  实例化发布者
+ * @param:  const std::string& node_name 话题名
+ * @return:  Publisher 发布者对象
+ */
 Publisher Node::create_publisher(const std::string& topic_name) {
     auto pub_impl = pimpl_->init_publisher(topic_name);
     if (!pub_impl) {
@@ -267,6 +298,12 @@ Publisher Node::create_publisher(const std::string& topic_name) {
     return Publisher{pub_impl};
 }
 
+/**
+ * @brief:  实例化订阅者者
+ * @param:  const std::string& node_name 话题名
+ * @param:  Subscriber::CallbackType callback 回调函数
+ * @return:  Publisher 订阅者对象
+ */
 Subscriber Node::create_subscriber(
     const std::string& topic_name, Subscriber::CallbackType callback) {
     auto sub_impl = pimpl_->init_subscriber(topic_name, callback); // NOLINT
@@ -278,7 +315,9 @@ Subscriber Node::create_subscriber(
     return Subscriber{sub_impl};
 }
 
-// 接口转发
+/**
+ * @brief:  节点处理回调
+ */
 void Node::spin() {
     pimpl_->spin();
 }
