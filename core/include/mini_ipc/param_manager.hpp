@@ -21,7 +21,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
 
         YAML::Node node = find_node(key);
-        if (!node || node.IsNull()) {
+        if (!node.IsDefined() || node.IsNull()) {
             return default_value;
         }
 
