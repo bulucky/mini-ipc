@@ -12,6 +12,9 @@
 int main(int argc, char const* argv[]) {
     // 参数管理器
     auto& params = mini_ipc::ParamManager::instance();
+    if (!params.load("core/config/comm.yaml")) {
+        std::cerr << "Failed to load config, using defaults.\n";
+    }
 
     int server_fd;
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -26,7 +29,7 @@ int main(int argc, char const* argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    int port = params.get<int>("discovery_daemon.porty", 8888);
+    int port = params.get<int>("discovery_daemon.port", 8888);
 
     struct sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
@@ -39,7 +42,7 @@ int main(int argc, char const* argv[]) {
     bind(server_fd, (sockaddr*)&server_addr, server_addr_len);
     listen(server_fd, backlog);
 
-    std::cout << "[Discovery] Daemon running on port 8888..." << "\n";
+    std::cout << "[Discovery] Daemon running on port " << port << "..." << "\n";
 
     // topic --> port
     std::unordered_map<std::string, std::string> topic_registry;

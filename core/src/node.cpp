@@ -15,8 +15,6 @@
 #include <unordered_map>
 
 namespace mini_ipc {
-auto& params = mini_ipc::ParamManager::instance();
-
 // Publisher代理Impl
 class Publisher::Impl {
 public:
@@ -104,6 +102,7 @@ public:
             perror("socket");
             return "";
         }
+        auto& params = ParamManager::instance();
 
         std::string server_ip = params.get<std::string>("discovery_daemon.ip", "127.0.0.1");
         int server_port = params.get<int>("discovery_daemon.port", 8888);
@@ -160,6 +159,7 @@ public:
             return nullptr;
         }
 
+        auto& params = ParamManager::instance();
         int pub_server_backlog = params.get<int>("publisher.backlog", 16);
 
         listen(server_fd, pub_server_backlog);
@@ -243,7 +243,11 @@ public:
      */
     void spin() {
         // [TODO]: epoll_wait 循环
-        struct epoll_event events[10]; // NOLINT
+        auto& params = ParamManager::instance();
+        int epoll_max_events = params.get<int>("runtime.epoll_max_events", 1);
+        // std::cout << "epoll_max_events" << epoll_max_events << "\n";
+
+        struct epoll_event events[epoll_max_events]; // NOLINT
         std::cout << "[Node: " << name_ << "] Spinning and waiting for events...\n";
         while (true) {
             int event_num = epoll_wait(epoll_fd_, events, 10, -1);

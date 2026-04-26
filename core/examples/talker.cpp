@@ -8,7 +8,12 @@
 using namespace std::chrono_literals;
 
 int main(int argc, char const* argv[]) {
-    mini_ipc::ParamManager::instance().load("core/config/comm.yaml");
+    auto& params = mini_ipc::ParamManager::instance();
+
+    if (!params.load("/home/hizaml/mini-ipc/core/config/comm.yaml")) {
+        std::cerr << "Failed to load config, using defaults.\n";
+    }
+
 
     auto node =
         std::make_shared<mini_ipc::Node>("test_node");
