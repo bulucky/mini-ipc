@@ -5,3 +5,4 @@ add_executable(listener listener.cpp)
 target_link_libraries(listener PRIVATE mini_ipc_core)
 
 add_executable(discovery_daemon ./discovery_daemon.cpp)
+target_link_libraries(discovery_daemon PRIVATE mini_ipc_core)

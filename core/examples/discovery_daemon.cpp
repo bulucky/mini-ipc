@@ -1,3 +1,5 @@
+#include "mini_ipc/param_manager.hpp"
+
 #include <cstring>
 #include <unistd.h>
 #include <netinet/in.h>
@@ -8,6 +10,9 @@
 #include <unordered_map>
 
 int main(int argc, char const* argv[]) {
+    // 参数管理器
+    auto& params = mini_ipc::ParamManager::instance();
+
     int server_fd;
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("socket");
@@ -21,14 +26,18 @@ int main(int argc, char const* argv[]) {
         exit(EXIT_FAILURE);
     }
 
+    int port = params.get<int>("discovery_daemon.porty", 8888);
+
     struct sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(8888);
+    server_addr.sin_port = htons(port);
     socklen_t server_addr_len = sizeof(server_addr);
 
+    int backlog = params.get<int>("discovery_daemon.backlog", 128);
+
     bind(server_fd, (sockaddr*)&server_addr, server_addr_len);
-    listen(server_fd, 128);
+    listen(server_fd, backlog);
 
     std::cout << "[Discovery] Daemon running on port 8888..." << "\n";
 

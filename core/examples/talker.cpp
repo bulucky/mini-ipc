@@ -1,4 +1,5 @@
 #include "mini_ipc/node.hpp"
+#include "mini_ipc/param_manager.hpp"
 
 #include <iostream>
 #include <thread>
@@ -7,6 +8,8 @@
 using namespace std::chrono_literals;
 
 int main(int argc, char const* argv[]) {
+    mini_ipc::ParamManager::instance().load("core/config/comm.yaml");
+
     auto node =
         std::make_shared<mini_ipc::Node>("test_node");
 

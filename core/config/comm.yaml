@@ -1,3 +1,11 @@
 discovery_daemon:
   ip: 127.0.0.1
   port: 8888
+  backlog: 128
+
+publisher:
+  backlog: 16
+
+runtime:
+  epoll_max_events: 10
+  

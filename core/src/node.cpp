@@ -1,4 +1,5 @@
 #include <mini_ipc/node.hpp>
+#include "mini_ipc/param_manager.hpp"
 
 #include <unistd.h>
 #include <sys/epoll.h>
@@ -14,6 +15,7 @@
 #include <unordered_map>
 
 namespace mini_ipc {
+auto& params = mini_ipc::ParamManager::instance();
 
 // Publisher代理Impl
 class Publisher::Impl {
@@ -103,10 +105,13 @@ public:
             return "";
         }
 
+        std::string server_ip = params.get<std::string>("discovery_daemon.ip", "127.0.0.1");
+        int server_port = params.get<int>("discovery_daemon.port", 8888);
+
         struct sockaddr_in server_addr = {};
         server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(8888);
-        inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
+        server_addr.sin_port = htons(server_port);
+        inet_pton(AF_INET, server_ip.c_str(), &server_addr.sin_addr);
 
         if (connect(sc_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
             perror("connect");
@@ -155,7 +160,9 @@ public:
             return nullptr;
         }
 
-        listen(server_fd, 16);
+        int pub_server_backlog = params.get<int>("publisher.backlog", 16);
+
+        listen(server_fd, pub_server_backlog);
 
         socklen_t server_addr_len = sizeof(server_addr);
         if (getsockname(server_fd, (struct sockaddr*)&server_addr, &server_addr_len) == -1) {
