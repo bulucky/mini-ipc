@@ -3,3 +3,8 @@ build/
 
 # codex
 .codex
+AGENTS.md
+
+# dashboard
+dashboard/node_modules
+dashboard/dist
