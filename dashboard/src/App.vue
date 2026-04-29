@@ -1,19 +1,40 @@
-<script setup>
+<script setup lang="ts">
 import { computed, ref } from 'vue'
-import { createWsClient } from './api/wsClient'
+import {
+  createWsClient,
+  type LogLevel,
+  type WsClient,
+  type WsCommand,
+  type WsIncomingMessage
+} from './api/wsClient'
+
+type ConnectionState = 'disconnected' | 'connecting' | 'connected'
+
+type DashboardMessage = {
+  type: string
+  topic: string
+  payload: string
+  timestamp: string
+}
+
+type DashboardLog = {
+  level: LogLevel
+  message: string
+  time: string
+}
 
 const wsUrl = ref('ws://127.0.0.1:9000')
 const topic = ref('test_topic')
 const payload = ref('hello from dashboard')
-const connectionState = ref('disconnected')
-const messages = ref([])
-const logs = ref([])
+const connectionState = ref<ConnectionState>('disconnected')
+const messages = ref<DashboardMessage[]>([])
+const logs = ref<DashboardLog[]>([])
 
-let client = null
+let client: WsClient | null = null
 
 const isConnected = computed(() => connectionState.value === 'connected')
 
-function addLog(level, message) {
+function addLog(level: LogLevel, message: string) {
   logs.value.unshift({
     level,
     message,
@@ -21,7 +42,7 @@ function addLog(level, message) {
   })
 }
 
-function addMessage(message) {
+function addMessage(message: WsIncomingMessage) {
   messages.value.unshift({
     type: message.type ?? 'message',
     topic: message.topic ?? topic.value,
@@ -43,7 +64,7 @@ function connect() {
       connectionState.value = 'connected'
       addLog('success', 'WebSocket connected')
     },
-    onMessage(message) {
+    onMessage(message: WsIncomingMessage) {
       if (message.type === 'message' || message.type === 'raw') {
         addMessage(message)
       } else {
@@ -65,7 +86,7 @@ function disconnect() {
   client = null
 }
 
-function sendCommand(command) {
+function sendCommand(command: WsCommand) {
   if (!client?.send(command)) {
     addLog('error', 'WebSocket is not connected')
     return false
