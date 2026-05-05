@@ -1,4 +1,5 @@
 #include "mini_ipc/websocket_session.hpp"
+#include "mini_ipc/bridge_dispatcher.hpp"
 
 #include <boost/asio/buffer.hpp>
 #include <boost/beast/websocket/error.hpp>
@@ -57,8 +58,9 @@ void WebSocketSession::on_read(boost::system::error_code ec,
 
     read_buffer_.consume(read_buffer_.size());
 
-    // todo: 响应回复，由BridgeDispatcher来完成
-    // std::string respone_msg = dispatcher_.
+    std::string respone_msg = dispatcher_.handle_message(request_msg);
+
+    do_write(respone_msg);
 }
 
 void WebSocketSession::do_write(std::string text) {
