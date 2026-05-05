@@ -1,4 +1,5 @@
 #include "mini_ipc/websocket_server.hpp"
+#include "mini_ipc/websocket_session.hpp"
 
 #include <boost/beast/core/error.hpp>
 #include <boost/system/error_code.hpp>
@@ -61,8 +62,10 @@ void WebSocketServer::on_accept(boost::system::error_code ec,
         std::cerr << "[WebSocketServer] accept failed: " << ec.message() << "\n";
     } else {
         std::cout << "[WebSocketServer] new tcp connection\n";
-        // todo: 新建链接会话
-        // std::make_shared<WebSocketSession>(Args &&args...)
+
+        std::make_shared<WebSocketSession>(
+            std::move(socket), disaptcher_)
+            ->run();
     }
 
     do_accept();
