@@ -43,5 +43,6 @@ private:
     boost::asio::io_context& ioc_;
     boost::asio::ip::tcp::acceptor acceptor_;
     BridgeDispatcher& disaptcher_;
+    bool ready_{false};
 };
 } // namespace mini_ipc

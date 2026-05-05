@@ -39,6 +39,8 @@ WebSocketServer::WebSocketServer(boost::asio::io_context& ioc,
         return;
     }
 
+    ready_ = true;
+
     std::cout << "[WebSocketServer] listening on "
               << endpoint.address().to_string()
               << ":"
@@ -46,6 +48,11 @@ WebSocketServer::WebSocketServer(boost::asio::io_context& ioc,
               << "\n";
 }
 void WebSocketServer::run() {
+    if (!ready_) {
+        std::cerr << "[WebSocketServer] server is not ready, skip accept\n";
+        return;
+    }
+
     do_accept();
 }
 
@@ -60,6 +67,9 @@ void WebSocketServer::on_accept(boost::system::error_code ec,
                                 boost::asio::ip::tcp::socket socket) {
     if (ec) {
         std::cerr << "[WebSocketServer] accept failed: " << ec.message() << "\n";
+        if (!acceptor_.is_open()) {
+            return;
+        }
     } else {
         std::cout << "[WebSocketServer] new tcp connection\n";
 
