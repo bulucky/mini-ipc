@@ -33,7 +33,7 @@ private:
 
     /**
      *@brief: 异步处理链接
-     *  成功新建会话
+     *  成功则新建会话管理链接并等待下一个链接，失败则直接返回
      *
      */
     void on_accept(boost::system::error_code ec,
