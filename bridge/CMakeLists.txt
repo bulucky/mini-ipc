@@ -5,6 +5,14 @@ set(BRIDGE_SOURCES
     src/bridge_dispatcher.cpp
 )
 
+include(FetchContent)
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.12.0
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 add_executable(mini_ipc_bridge ${BRIDGE_SOURCES})
 
 target_include_directories(mini_ipc_bridge
@@ -13,5 +21,6 @@ target_include_directories(mini_ipc_bridge
 
 target_link_libraries(mini_ipc_bridge
     PRIVATE mini_ipc_core 
-    PRIVATE pthread    
+    PRIVATE pthread
+    PRIVATE nlohmann_json::nlohmann_json    
 )
