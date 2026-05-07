@@ -1,26 +1,49 @@
 #include "mini_ipc/bridge_dispatcher.hpp"
 
+#include "nlohmann/json.hpp"
+
+#include <string>
 #include <iostream>
 
 namespace mini_ipc {
+using json = nlohmann::json;
+
 BridgeDispatcher::BridgeDispatcher(Node& node)
     : node_(node) {}
 
 std::string BridgeDispatcher::handle_message(const std::string& text) {
-    const std::string type = extract_string_field(text, "type");
+    try {
+        const auto request = json::parse(text);
+        const auto type = request.value("type", std::string());
 
-    if (type == "publish") {
-        const std::string topic = extract_string_field(text, "topic");
-        const std::string payload = extract_string_field(text, "payload");
+        if (type == "publish") {
+            return handle_publish(
+                request.value("type", std::string()),
+                request.value("payload", std::string()));
+        }
 
-        return handle_publish(topic, payload);
-    } else if (type == "subscribe") {
-        const std::string topic = extract_string_field(text, "topic");
+        if (type == "subscribe") {
+            return handle_subscribe(request.value("topic", std::string{}));
+        }
 
-        return handle_subscribe(topic);
+        return make_status("error", "Unsupported command type: " + type);
+    } catch (const json::exception& e) {
+        return make_status("error", "Invalid JSON request");
     }
+    // const std::string type = extract_string_field(text, "type");
 
-    return make_status("error", "Unsupported command type: " + type);
+    // if (type == "publish") {
+    //     const std::string topic = extract_string_field(text, "topic");
+    //     const std::string payload = extract_string_field(text, "payload");
+
+    //     return handle_publish(topic, payload);
+    // } else if (type == "subscribe") {
+    //     const std::string topic = extract_string_field(text, "topic");
+
+    //     return handle_subscribe(topic);
+    // }
+
+    // return make_status("error", "Unsupported command type: " + type);
 }
 
 std::string BridgeDispatcher::handle_publish(const std::string& topic,
