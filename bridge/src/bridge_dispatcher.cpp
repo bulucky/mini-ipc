@@ -18,7 +18,7 @@ std::string BridgeDispatcher::handle_message(const std::string& text) {
 
         if (type == "publish") {
             return handle_publish(
-                request.value("type", std::string()),
+                request.value("topic", std::string()),
                 request.value("payload", std::string()));
         }
 
@@ -30,20 +30,6 @@ std::string BridgeDispatcher::handle_message(const std::string& text) {
     } catch (const json::exception& e) {
         return make_status("error", "Invalid JSON request");
     }
-    // const std::string type = extract_string_field(text, "type");
-
-    // if (type == "publish") {
-    //     const std::string topic = extract_string_field(text, "topic");
-    //     const std::string payload = extract_string_field(text, "payload");
-
-    //     return handle_publish(topic, payload);
-    // } else if (type == "subscribe") {
-    //     const std::string topic = extract_string_field(text, "topic");
-
-    //     return handle_subscribe(topic);
-    // }
-
-    // return make_status("error", "Unsupported command type: " + type);
 }
 
 std::string BridgeDispatcher::handle_publish(const std::string& topic,
@@ -109,50 +95,20 @@ std::string BridgeDispatcher::extract_string_field(const std::string& json,
 
 std::string BridgeDispatcher::make_status(const std::string& level,
                                           const std::string& message) {
-    return std::string{R"({"type":"status","level":")"} +
-           escape_json(level) +
-           R"(","message":")" +
-           escape_json(message) +
-           "\"}";
+    return json{
+        {"type", "status"},
+        {"level", level},
+        {"payload", message}}
+        .dump();
 }
 
 std::string BridgeDispatcher::make_message(const std::string& topic,
                                            const std::string& payload) {
-    return std::string{R"({"type":"message","topic":")"} +
-           escape_json(topic) +
-           R"(","payload":")" +
-           escape_json(payload) +
-           "\"}";
+    return json{
+        {"type", "message"},
+        {"topic", topic},
+        {"payload", payload}}
+        .dump();
 }
 
-std::string
-BridgeDispatcher::escape_json(const std::string& text) {
-    std::string escaped;
-    escaped.reserve(text.size());
-
-    for (const auto ch : text) {
-        switch (ch) {
-            case '\\':
-                escaped += "\\\\";
-                break;
-            case '"':
-                escaped += "\\\"";
-                break;
-            case '\n':
-                escaped += "\\n";
-                break;
-            case '\r':
-                escaped += "\\r";
-                break;
-            case '\t':
-                escaped += "\\t";
-                break;
-            default:
-                escaped += ch;
-                break;
-        }
-    }
-
-    return escaped;
-}
 } // namespace mini_ipc
