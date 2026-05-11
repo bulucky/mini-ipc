@@ -28,19 +28,23 @@ public:
 private:
     /**
      *@brief: 处理发布
-     * dashboard --> core
+     * dashboard -->bridge --> core
      */
     std::string handle_publish(const std::string& topic,
                                const std::string& payload);
 
     /**
      *@brief: 处理订阅
-     * core --> dashboard
+     * core --> bridge --> dashboard
      *@param: const std::string& topic
      */
     std::string handle_subscribe(const std::string& topic);
 
-
+    /**
+     *@brief: 缓存发布者
+     *
+     *@param: const std::string& topic
+     */
     Publisher& get_or_create_publisher(const std::string& topic);
 
     /**

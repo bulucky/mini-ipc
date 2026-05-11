@@ -8,7 +8,6 @@
 
 #include <iostream>
 
-
 namespace mini_ipc {
 namespace beast = boost::beast;
 namespace websocket = boost::beast::websocket;

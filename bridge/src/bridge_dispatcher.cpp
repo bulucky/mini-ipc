@@ -72,7 +72,7 @@ std::string BridgeDispatcher::make_status(const std::string& level,
     return json{
         {"type", "status"},
         {"level", level},
-        {"payload", message}}
+        {"message", message}}
         .dump();
 }
 
