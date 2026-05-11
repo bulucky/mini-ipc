@@ -1,3 +1,7 @@
+/**
+ *@brief: WebSocket JSON 协议和 MiniIPC Core API 之间的适配层
+ */
+
 #pragma once
 
 #include "mini_ipc/node.hpp"
@@ -24,26 +28,32 @@ public:
 private:
     /**
      *@brief: 处理发布
+     * dashboard --> core
      */
     std::string handle_publish(const std::string& topic,
                                const std::string& payload);
 
+    /**
+     *@brief: 处理订阅
+     * core --> dashboard
+     *@param: const std::string& topic
+     */
     std::string handle_subscribe(const std::string& topic);
+
 
     Publisher& get_or_create_publisher(const std::string& topic);
 
-    static std::string extract_string_field(const std::string& json,
-                                            const std::string& key);
-
+    /**
+     *@brief: 封装status消息字符串
+     */
     static std::string make_status(const std::string& level,
                                    const std::string& message);
 
+    /**
+     *@brief: 封装message消息字符串
+     */
     static std::string make_message(const std::string& topic,
                                     const std::string& payload);
-    /**
-     *@brief: 转义json
-     */
-    static std::string escape_json(const std::string& test);
 
     Node& node_;
     std::unordered_map<std::string, Publisher> publishers_;

@@ -67,32 +67,6 @@ std::string BridgeDispatcher::handle_subscribe(const std::string& topic) {
     return make_status("info", "Subscribe command received for " + topic);
 }
 
-std::string BridgeDispatcher::extract_string_field(const std::string& json,
-                                                   const std::string& key) {
-    const std::string pattern = "\"" + key + "\"";
-    const std::size_t key_pos = json.find(pattern);
-    if (key_pos == std::string::npos) {
-        return "";
-    }
-
-    const std::size_t colon_pos = json.find(':', key_pos + pattern.size());
-    if (colon_pos == std::string::npos) {
-        return "";
-    }
-
-    const std::size_t first_quote = json.find('"', colon_pos + 1);
-    if (first_quote == std::string::npos) {
-        return "";
-    }
-
-    const std::size_t second_quote = json.find('"', first_quote + 1);
-    if (second_quote == std::string::npos) {
-        return "";
-    }
-
-    return json.substr(first_quote + 1, second_quote - first_quote - 1);
-}
-
 std::string BridgeDispatcher::make_status(const std::string& level,
                                           const std::string& message) {
     return json{

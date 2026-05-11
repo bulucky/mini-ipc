@@ -24,7 +24,7 @@ public:
 
 private:
     /**
-     *@brief: 接受握手回调
+     *@brief: 接受握手回调函数
      */
     void on_accept(boost::system::error_code ec);
 
@@ -34,7 +34,7 @@ private:
     void do_read();
 
     /**
-     *@brief: 读取回调
+     *@brief: 读取回调函数
      */
     void on_read(boost::system::error_code ec,
                  std::size_t bytes_transferred);
@@ -45,7 +45,7 @@ private:
     void do_write(std::string text);
 
     /**
-     *@brief: 写入回调
+     *@brief: 写入回调函数
      */
     void on_write(boost::system::error_code ec,
                   std::size_t bytes_transferred);

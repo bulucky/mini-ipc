@@ -6,12 +6,8 @@
 
 #include <iostream>
 
-#include "nlohmann/json.hpp"
-
-
 namespace mini_ipc {
 using tcp = boost::asio::ip::tcp;
-using json = nlohmann::json;
 
 WebSocketServer::WebSocketServer(boost::asio::io_context& ioc,
                                  boost::asio::ip::tcp::endpoint endpoint, // NOLINT
