@@ -9,6 +9,12 @@
 #include <iostream>
 #include <unordered_map>
 
+struct TopicElement {
+    std::string port;
+    std::vector<std::unordered_map<std::string, int>> publishers;
+    std::vector<std::unordered_map<std::string, int>> subscribers;
+};
+
 int main(int argc, char const* argv[]) {
     // 参数管理器
     auto& params = mini_ipc::ParamManager::instance();
@@ -45,7 +51,7 @@ int main(int argc, char const* argv[]) {
     std::cout << "[Discovery] Daemon running on port " << port << "..." << "\n";
 
     // topic --> port
-    std::unordered_map<std::string, std::string> topic_registry;
+    std::unordered_map<std::string, TopicElement> topic_manager;
 
 
     while (true) {
@@ -71,13 +77,13 @@ int main(int argc, char const* argv[]) {
             std::string topic = msg.substr(4, space1 - 4);
             std::string port = msg.substr(space1 + 1);
 
-            topic_registry[topic] = port;
+            topic_manager[topic].port = port;
             std::cout << "[Discovery] Registered: " << topic << " at port " << port << "\n";
         } else if (msg.substr(0, 3) == "SUB") {
             // "SUB <topic>"
             std::string topic = msg.substr(4);
             std::string port =
-                topic_registry.count(topic) ? topic_registry[topic] : "NOT_FOUND";
+                topic_manager.count(topic) ? topic_manager[topic].port : "NOT_FOUND";
 
             if (write(client_fd, port.c_str(), port.length()) == -1) {
                 perror("write");
