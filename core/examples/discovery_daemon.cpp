@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <unistd.h>
+#include <sys/epoll.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
@@ -53,8 +54,38 @@ int main(int argc, char const* argv[]) {
     // topic --> port
     std::unordered_map<std::string, TopicElement> topic_manager;
 
+    int epoll_fd_discovery = epoll_create1(0);
+    struct epoll_event ev{};
+    ev.events = EPOLLIN;
+    ev.data.fd = server_fd;
+    epoll_ctl(epoll_fd_discovery, EPOLL_CTL_ADD, server_fd, &ev);
 
+    struct epoll_event events[64];
     while (true) {
+        int event_num = epoll_wait(epoll_fd_discovery, events, 64, -1);
+        for (int i = 0; i < event_num; ++i) {
+            int fd = events[i].data.fd;
+            // 新连接
+            if (fd == server_fd) {
+                int client_fd = accept(server_fd, nullptr, nullptr);
+                struct epoll_event client_ev{};
+                client_ev.events = EPOLLIN;
+                client_ev.data.fd = client_fd;
+                epoll_ctl(epoll_fd_discovery, EPOLL_CTL_ADD, client_fd, &client_ev);
+                continue;
+            }
+
+            // 已有连接有数据
+            char buffer[256] = {};
+            ssize_t read_bytes = read(fd, buffer, sizeof(buffer));
+            if (read_bytes < 0) {
+                // 断开连接
+                // for (range-declaration : range-expression) {
+
+                // }
+            }
+        }
+
         int client_fd;
         if ((client_fd = accept(server_fd, (sockaddr*)&server_addr, &server_addr_len)) == -1) {
             perror("accept");
