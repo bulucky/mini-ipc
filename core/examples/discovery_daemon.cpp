@@ -79,8 +79,8 @@ int main(int argc, char const* argv[]) {
             char buffer[256] = {};
             ssize_t read_bytes = read(fd, buffer, sizeof(buffer));
             if (read_bytes < 0) {
-                // 断开连接
-                // for (range-declaration : range-expression) {
+                // 断开连接，subscriber
+                // for (init-statement; condition; inc-expression) {
 
                 // }
             }
