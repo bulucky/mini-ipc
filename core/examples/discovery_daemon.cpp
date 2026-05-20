@@ -10,10 +10,9 @@
 #include <iostream>
 #include <unordered_map>
 
-struct TopicElement {
+struct TopicEntry {
     std::string port;
-    std::vector<std::unordered_map<std::string, int>> publishers;
-    std::vector<std::unordered_map<std::string, int>> subscribers;
+    std::vector<int> waiting_fds;
 };
 
 int main(int argc, char const* argv[]) {
@@ -52,7 +51,7 @@ int main(int argc, char const* argv[]) {
     std::cout << "[Discovery] Daemon running on port " << port << "..." << "\n";
 
     // topic --> port
-    std::unordered_map<std::string, TopicElement> topic_manager;
+    std::unordered_map<std::string, TopicEntry> topic_registry;
 
     int epoll_fd_discovery = epoll_create1(0);
     struct epoll_event ev{};
@@ -80,9 +79,13 @@ int main(int argc, char const* argv[]) {
             ssize_t read_bytes = read(fd, buffer, sizeof(buffer));
             if (read_bytes < 0) {
                 // 断开连接，subscriber
-                // for (init-statement; condition; inc-expression) {
-
-                // }
+                for (auto& [topic, entry] : topic_registry) {
+                    auto& waiting_fds = entry.waiting_fds;
+                    waiting_fds.erase(std::remove(waiting_fds.begin(), waiting_fds.end(), fd), waiting_fds.end());
+                }
+                epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, fd, nullptr);
+                close(fd);
+                continue;
             }
         }
 
@@ -108,13 +111,13 @@ int main(int argc, char const* argv[]) {
             std::string topic = msg.substr(4, space1 - 4);
             std::string port = msg.substr(space1 + 1);
 
-            topic_manager[topic].port = port;
+            topic_registry[topic].port = port;
             std::cout << "[Discovery] Registered: " << topic << " at port " << port << "\n";
         } else if (msg.substr(0, 3) == "SUB") {
             // "SUB <topic>"
             std::string topic = msg.substr(4);
             std::string port =
-                topic_manager.count(topic) ? topic_manager[topic].port : "NOT_FOUND";
+                topic_registry.count(topic) ? topic_registry[topic].port : "NOT_FOUND";
 
             if (write(client_fd, port.c_str(), port.length()) == -1) {
                 perror("write");
