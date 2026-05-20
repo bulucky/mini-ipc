@@ -15,6 +15,14 @@ struct TopicEntry {
     std::vector<int> waiting_fds;
 };
 
+std::pair<std::string, std::string> parse_pub(const std::string& msg) {
+    size_t space1 = msg.find(' ', 4);
+    std::string topic = msg.substr(4, space1 - 4);
+    std::string port = msg.substr(space1 + 1);
+
+    return std::pair<std::string, std::string>{topic, port};
+}
+
 int main(int argc, char const* argv[]) {
     // 参数管理器
     auto& params = mini_ipc::ParamManager::instance();
@@ -77,8 +85,9 @@ int main(int argc, char const* argv[]) {
             // 已有连接有数据
             char buffer[256] = {};
             ssize_t read_bytes = read(fd, buffer, sizeof(buffer));
+            // 对方关闭连接
             if (read_bytes < 0) {
-                // 断开连接，subscriber
+                // 清理缓存
                 for (auto& [topic, entry] : topic_registry) {
                     auto& waiting_fds = entry.waiting_fds;
                     waiting_fds.erase(std::remove(waiting_fds.begin(), waiting_fds.end(), fd), waiting_fds.end());
@@ -87,48 +96,41 @@ int main(int argc, char const* argv[]) {
                 close(fd);
                 continue;
             }
-        }
 
-        int client_fd;
-        if ((client_fd = accept(server_fd, (sockaddr*)&server_addr, &server_addr_len)) == -1) {
-            perror("accept");
-            break;
-        }
+            // 短连接，注册或查询
+            std::string msg(buffer, read_bytes);
+            // 注册
+            if (std::strcmp(msg.substr(0, 3).c_str(), "PUB") == 0) {
+                auto [topic, port] = parse_pub(msg);
+                auto& entry = topic_registry[topic];
+                entry.port = port;
 
-        char buffer[256] = {}; // NOLINT
+                // 通知在等待该话题的订阅者，发布者已上线
+                std::string notify_msg = "PORT" + port;
+                for (const auto& w_fd : entry.waiting_fds) {
+                    write(w_fd, &notify_msg, notify_msg.size());
+                    epoll_ctl(epoll_fd_discovery, EPOLL_CTL_ADD, w_fd, nullptr);
+                    close(w_fd);
+                }
+                entry.waiting_fds.clear();
 
-        if (read(client_fd, buffer, sizeof(buffer)) == -1) {
-            perror("read");
-            close(client_fd);
-            break;
-        }
-
-        std::string msg(buffer);
-
-        if (msg.substr(0, 3) == "PUB") {
-            // "PUB <topic> <port>"
-            size_t space1 = msg.find(' ', 4);
-            std::string topic = msg.substr(4, space1 - 4);
-            std::string port = msg.substr(space1 + 1);
-
-            topic_registry[topic].port = port;
-            std::cout << "[Discovery] Registered: " << topic << " at port " << port << "\n";
-        } else if (msg.substr(0, 3) == "SUB") {
-            // "SUB <topic>"
-            std::string topic = msg.substr(4);
-            std::string port =
-                topic_registry.count(topic) ? topic_registry[topic].port : "NOT_FOUND";
-
-            if (write(client_fd, port.c_str(), port.length()) == -1) {
-                perror("write");
-                close(client_fd);
-                break;
+                write(fd, "OK", 2);
+                epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, fd, nullptr);
+                close(fd);
+            } else if (std::strcmp(msg.substr(0, 3).c_str(), "SUB") == 0) {
+                std::string topic = msg.substr(4);
+                auto it = topic_registry.find(topic);
+                if (it != topic_registry.end() && !it->second.port.empty()) {
+                    write(fd, it->second.port.c_str(), it->second.port.size());
+                    epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, fd, nullptr);
+                    close(fd);
+                } else {
+                    // 发布者未上线，加入等待
+                    topic_registry[topic].waiting_fds.push_back(fd);
+                    write(fd, "WAITING", 7);
+                }
             }
-
-            std::cout << "[Discovery] Queried: " << topic << " -> " << port << "\n";
         }
-
-        close(client_fd);
     }
 
     return 0;
