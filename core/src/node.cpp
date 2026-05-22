@@ -73,6 +73,10 @@ public:
     std::string name_;
     int epoll_fd_;
 
+    // 管理等待 discovry 通知的 fd
+    std::unordered_map<int, std::string> pending_sub_topics;
+    std::unordered_map<int, Subscriber::CallbackType> pending_sub_callbacks;
+
     // server_fd --> Publisher::Impl
     std::unordered_map<int, std::shared_ptr<Publisher::Impl>> publishers_;
     // client_fd --> Subscriber::Callback
@@ -200,13 +204,20 @@ public:
         const std::string& topic_name, Subscriber::CallbackType callback) {
         // 向守护进程查询话题端口信息
         // SUB <topic>
-        std::string port_info = talk_to_discovery_daemon("SUB " + topic_name);
-        if (port_info == "NOT_FOUND" || port_info.empty()) {
+        std::string response = talk_to_discovery_daemon("SUB " + topic_name);
+        //
+        if (response == "NOT_FOUND" || response.empty()) {
             std::cerr << "[Node: " << name_ << "] Topic '" << topic_name << "' not found!" << "\n";
             return nullptr;
         }
 
-        unsigned short target_port = std::stoi(port_info);
+        // // 话题发布者已经上线
+        // if (strcmp(response.substr(0, 4).c_str(), "WAIT") != 0) {
+        //     unsigned short target_port = std::stoi(response);
+        //     // return
+        // }
+
+        unsigned short target_port = std::stoi(response);
         int client_fd;
         if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
             perror("socket");
