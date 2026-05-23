@@ -204,35 +204,77 @@ public:
         const std::string& topic_name, Subscriber::CallbackType callback) {
         // 向守护进程查询话题端口信息
         // SUB <topic>
-        std::string response = talk_to_discovery_daemon("SUB " + topic_name);
-        //
-        if (response == "NOT_FOUND" || response.empty()) {
-            std::cerr << "[Node: " << name_ << "] Topic '" << topic_name << "' not found!" << "\n";
+        // std::string response = talk_to_discovery_daemon("SUB " + topic_name);
+        std::string msg{"SUB " + topic_name};
+
+        char buffer[256] = {};
+        int sc_fd;
+        if ((sc_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+            perror("socket");
+            // return "";
+        }
+        auto& params = ParamManager::instance();
+
+        std::string server_ip = params.get<std::string>("discovery_daemon.ip", "127.0.0.1");
+        int server_port = params.get<int>("discovery_daemon.port", 8888);
+
+        struct sockaddr_in server_addr = {};
+        server_addr.sin_family = AF_INET;
+        server_addr.sin_port = htons(server_port);
+        inet_pton(AF_INET, server_ip.c_str(), &server_addr.sin_addr);
+
+        if (connect(sc_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
+            perror("connect");
+            close(sc_fd);
+            std::cout << "[Node] Failed to connect to Discovery Daemon!" << "\n";
+            // return "";
+        }
+
+        if (write(sc_fd, msg.c_str(), msg.length()) == -1) {
+            perror("write");
+            close(sc_fd);
+            // return "";
+        }
+
+        if (read(sc_fd, buffer, sizeof(buffer)) == -1) {
+            perror("read");
+            close(sc_fd);
+            // return "";
+        }
+
+        std::string response{buffer};
+
+        if (response.empty()) {
+            std::cerr << "[Node: " << name_ << "] Topic '" << topic_name << "daemon discovery response is empty!" << "\n";
             return nullptr;
         }
 
-        // // 话题发布者已经上线
-        // if (strcmp(response.substr(0, 4).c_str(), "WAIT") != 0) {
-        //     unsigned short target_port = std::stoi(response);
-        //     // return
-        // }
-
-        unsigned short target_port = std::stoi(response);
+        unsigned short target_port = 0;
         int client_fd;
         if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
             perror("socket");
             return nullptr;
         }
+        // 查询话题时发布者已经上线，返回端口
+        if (strcmp(response.substr(0, 4).c_str(), "WAIT") != 0) {
 
-        struct sockaddr_in server_addr = {};
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(target_port);
-        inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
+            target_port = std::stoi(response);
+            struct sockaddr_in server_addr = {};
+            server_addr.sin_family = AF_INET;
+            server_addr.sin_port = htons(target_port);
+            inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
 
-        if (connect(client_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
-            perror("connect");
-            close(client_fd);
-            return nullptr;
+            if (connect(client_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
+                perror("connect");
+                close(client_fd);
+                return nullptr;
+            }
+
+            subscriber_callbacks[client_fd] = std::move(callback);
+        } else if (strcmp(response.substr(0, 4).c_str(), "WAIT") == 0) {
+            // 加入等待列表
+            pending_sub_topics[client_fd] = topic_name;
+            pending_sub_callbacks[client_fd] = callback;
         }
 
         struct epoll_event epoll_ev{};
@@ -240,10 +282,15 @@ public:
         epoll_ev.data.fd = client_fd;
         epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &epoll_ev);
 
-        subscriber_callbacks[client_fd] = std::move(callback);
-
-        std::cout
-            << "[Node: " << name_ << "] P2P Connected to Publisher on port " << target_port << "\n";
+        if (target_port == 0) {
+            std::cout
+                << "[Node: " << name_ << "] Waitting Publisher Go online "
+                << "\n ";
+        } else {
+            std::cout
+                << "[Node: " << name_ << "] P2P Connected to Publisher on port " << target_port
+                << "\n";
+        }
 
         return std::make_shared<Subscriber::Impl>(client_fd);
     }
@@ -286,7 +333,50 @@ public:
                         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
                         close(active_fd);
                         subscriber_callbacks.erase(active_fd);
+
                         std::cout << "[Node: " << name_ << "] Publisher disconnected.\n";
+                    }
+                } else if (pending_sub_topics.find(active_fd) != pending_sub_topics.end()) {
+                    char buffer[1024] = {};
+                    int read_bytes = read(active_fd, buffer, sizeof(buffer));
+
+                    if (read_bytes <= 0) {
+                        epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
+                        close(active_fd);
+
+                        pending_sub_topics.erase(active_fd);
+                        pending_sub_callbacks.erase(active_fd);
+
+                        continue;
+                    }
+
+                    std::string msg(buffer, read_bytes);
+                    if (strcmp(msg.substr(0, 4).c_str(), "PORT") == 0) {
+                        unsigned short target_port = std::stoi(msg.substr(5));
+                        auto callback = std::move(pending_sub_callbacks[active_fd]);
+                        epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
+                        close(active_fd);
+                        pending_sub_topics.erase(active_fd);
+                        pending_sub_callbacks.erase(active_fd);
+
+                        // 连接
+                        struct sockaddr_in server_addr = {};
+                        server_addr.sin_family = AF_INET;
+                        server_addr.sin_port = htons(target_port);
+                        inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
+
+                        int client_fd;
+                        if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+                            perror("socket");
+                            continue;
+                        }
+                        if (connect(client_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
+                            perror("connect");
+                            close(client_fd);
+                            continue;
+                        }
+
+                        subscriber_callbacks[client_fd] = std::move(callback);
                     }
                 }
             }

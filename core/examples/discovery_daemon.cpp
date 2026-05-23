@@ -86,7 +86,7 @@ int main(int argc, char const* argv[]) {
             char buffer[256] = {};
             ssize_t read_bytes = read(fd, buffer, sizeof(buffer));
             // 对方关闭连接
-            if (read_bytes < 0) {
+            if (read_bytes <= 0) {
                 // 清理缓存
                 for (auto& [topic, entry] : topic_registry) {
                     auto& waiting_fds = entry.waiting_fds;
@@ -97,7 +97,7 @@ int main(int argc, char const* argv[]) {
                 continue;
             }
 
-            // 短连接，注册或查询
+            // 消息分发, 注册或查询
             std::string msg(buffer, read_bytes);
             // 注册
             if (std::strcmp(msg.substr(0, 3).c_str(), "PUB") == 0) {
@@ -105,27 +105,29 @@ int main(int argc, char const* argv[]) {
                 auto& entry = topic_registry[topic];
                 entry.port = port;
 
-                // 通知在等待该话题的订阅者，发布者已上线
-                std::string notify_msg = "PORT" + port;
+                // 通知在等待该话题的订阅者, 话题的发布者已上线
+                std::string notify_msg = "PORT " + port;
                 for (const auto& w_fd : entry.waiting_fds) {
-                    write(w_fd, &notify_msg, notify_msg.size());
-                    epoll_ctl(epoll_fd_discovery, EPOLL_CTL_ADD, w_fd, nullptr);
+                    write(w_fd, notify_msg.c_str(), notify_msg.size());
+                    epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, w_fd, nullptr);
                     close(w_fd);
                 }
                 entry.waiting_fds.clear();
 
+                // 向publisher回复ok, 表示注册完成
                 write(fd, "OK", 2);
                 epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, fd, nullptr);
                 close(fd);
             } else if (std::strcmp(msg.substr(0, 3).c_str(), "SUB") == 0) {
                 std::string topic = msg.substr(4);
                 auto it = topic_registry.find(topic);
+                // 如果topic的发布者已经上线，则直接回复对应端口号
                 if (it != topic_registry.end() && !it->second.port.empty()) {
                     write(fd, it->second.port.c_str(), it->second.port.size());
                     epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, fd, nullptr);
                     close(fd);
                 } else {
-                    // 发布者未上线，加入等待
+                    // 向subscriber回复WAITING, 发布者未上线, 加入等待
                     topic_registry[topic].waiting_fds.push_back(fd);
                     write(fd, "WAITING", 7);
                 }
