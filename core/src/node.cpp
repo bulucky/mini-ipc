@@ -214,7 +214,6 @@ public:
             return nullptr;
         }
 
-
         struct epoll_event epoll_ev{};
         epoll_ev.events = EPOLLIN;
         // 查询话题时发布者已经上线，返回端口
@@ -251,6 +250,9 @@ public:
             // 加入等待列表
             pending_sub_topics[sc_fd] = topic_name;
             pending_sub_callbacks[sc_fd] = callback;
+
+            epoll_ev.data.fd = sc_fd;
+            epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sc_fd, &epoll_ev);
 
             std::cout
                 << "[Node: " << name_ << "] Waitting Publisher Go online "
@@ -300,11 +302,12 @@ public:
                         subscriber_callbacks.erase(active_fd);
 
                         std::cout << "[Node: " << name_ << "] Publisher disconnected.\n";
+                        break;
                     }
                 } else if (pending_sub_topics.find(active_fd) != pending_sub_topics.end()) {
                     char buffer[1024] = {};
                     int read_bytes = read(active_fd, buffer, sizeof(buffer));
-
+                    // daemon discovey offline
                     if (read_bytes <= 0) {
                         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
                         close(active_fd);
@@ -324,13 +327,13 @@ public:
                         pending_sub_topics.erase(active_fd);
                         pending_sub_callbacks.erase(active_fd);
 
-                        // 连接
+                        // 新建连接
                         struct sockaddr_in server_addr = {};
                         server_addr.sin_family = AF_INET;
                         server_addr.sin_port = htons(target_port);
                         inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
 
-                        int client_fd;
+                        int client_fd = 0;
                         if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
                             perror("socket");
                             continue;
@@ -340,6 +343,11 @@ public:
                             close(client_fd);
                             continue;
                         }
+
+                        struct epoll_event epoll_ev{};
+                        epoll_ev.events = EPOLLIN;
+                        epoll_ev.data.fd = client_fd;
+                        epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &epoll_ev);
 
                         subscriber_callbacks[client_fd] = std::move(callback);
                     }
