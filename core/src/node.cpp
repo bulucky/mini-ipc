@@ -205,61 +205,27 @@ public:
         const std::string& topic_name, Subscriber::CallbackType callback) {
         // 向守护进程查询话题端口信息
         // SUB <topic>
-        // std::string response = talk_to_discovery_daemon("SUB " + topic_name);
-        std::string msg{"SUB " + topic_name};
-
-        char buffer[256] = {};
-        int sc_fd;
-        if ((sc_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-            perror("socket");
-            // return "";
-        }
-        auto& params = ParamManager::instance();
-
-        std::string server_ip = params.get<std::string>("discovery_daemon.ip", "127.0.0.1");
-        int server_port = params.get<int>("discovery_daemon.port", 8888);
-
-        struct sockaddr_in server_addr = {};
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(server_port);
-        inet_pton(AF_INET, server_ip.c_str(), &server_addr.sin_addr);
-
-        if (connect(sc_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
-            perror("connect");
-            close(sc_fd);
-            std::cout << "[Node] Failed to connect to Discovery Daemon!" << "\n";
-            // return "";
-        }
-
-        if (write(sc_fd, msg.c_str(), msg.length()) == -1) {
-            perror("write");
-            close(sc_fd);
-            // return "";
-        }
-
-        if (read(sc_fd, buffer, sizeof(buffer)) == -1) {
-            perror("read");
-            close(sc_fd);
-            // return "";
-        }
-
-        std::string response{buffer};
+        int sc_fd = 0;
+        std::string response = talk_to_discovery_daemon(sc_fd, "SUB " + topic_name);
 
         if (response.empty()) {
             std::cerr << "[Node: " << name_ << "] Topic '" << topic_name << "daemon discovery response is empty!" << "\n";
+            close(sc_fd);
             return nullptr;
         }
 
-        unsigned short target_port = 0;
-        int client_fd;
-        if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-            perror("socket");
-            return nullptr;
-        }
+
+        struct epoll_event epoll_ev{};
+        epoll_ev.events = EPOLLIN;
         // 查询话题时发布者已经上线，返回端口
         if (strcmp(response.substr(0, 4).c_str(), "WAIT") != 0) {
+            int client_fd = 0;
+            if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+                perror("socket");
+                return nullptr;
+            }
 
-            target_port = std::stoi(response);
+            unsigned short target_port = std::stoi(response);
             struct sockaddr_in server_addr = {};
             server_addr.sin_family = AF_INET;
             server_addr.sin_port = htons(target_port);
@@ -271,29 +237,27 @@ public:
                 return nullptr;
             }
 
+            epoll_ev.data.fd = client_fd;
+            epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &epoll_ev);
+
             subscriber_callbacks[client_fd] = std::move(callback);
-        } else if (strcmp(response.substr(0, 4).c_str(), "WAIT") == 0) {
-            // 加入等待列表
-            pending_sub_topics[client_fd] = topic_name;
-            pending_sub_callbacks[client_fd] = callback;
-        }
+            close(sc_fd);
 
-        struct epoll_event epoll_ev{};
-        epoll_ev.events = EPOLLIN;
-        epoll_ev.data.fd = client_fd;
-        epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &epoll_ev);
-
-        if (target_port == 0) {
-            std::cout
-                << "[Node: " << name_ << "] Waitting Publisher Go online "
-                << "\n ";
-        } else {
             std::cout
                 << "[Node: " << name_ << "] P2P Connected to Publisher on port " << target_port
                 << "\n";
+            return std::make_shared<Subscriber::Impl>(client_fd);
+        } else if (strcmp(response.substr(0, 4).c_str(), "WAIT") == 0) {
+            // 加入等待列表
+            pending_sub_topics[sc_fd] = topic_name;
+            pending_sub_callbacks[sc_fd] = callback;
+
+            std::cout
+                << "[Node: " << name_ << "] Waitting Publisher Go online "
+                << "\n ";
         }
 
-        return std::make_shared<Subscriber::Impl>(client_fd);
+        return nullptr;
     }
 
     /**
