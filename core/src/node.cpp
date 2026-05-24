@@ -320,6 +320,7 @@ public:
 
                     std::string msg(buffer, read_bytes);
                     if (strcmp(msg.substr(0, 4).c_str(), "PORT") == 0) {
+                        // 关闭查询fd, 新建fd用于通信
                         unsigned short target_port = std::stoi(msg.substr(5));
                         auto callback = std::move(pending_sub_callbacks[active_fd]);
                         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
