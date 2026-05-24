@@ -100,8 +100,8 @@ public:
      * @param:  const std::string& msg
      * @return: std::string "" --> 注册成功，buffer --> 端口
      */
-    std::string talk_to_discovery_daemon(const std::string& msg) {
-        int sc_fd;
+    std::string talk_to_discovery_daemon(int& sc_fd, const std::string& msg) {
+        // int sc_fd;
         if ((sc_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
             perror("socket");
             return "";
@@ -135,8 +135,7 @@ public:
             close(sc_fd);
             return "";
         }
-
-        close(sc_fd);
+        // close(sc_fd);
 
         return std::string{buffer};
     }
@@ -178,7 +177,9 @@ public:
         // 向守护进程注册
         // PUB <topi>c <port>
         std::string reg_msg = "PUB " + topic_name + " " + std::to_string(assigned_port);
-        talk_to_discovery_daemon(reg_msg);
+        int sc_fd = 0;
+        talk_to_discovery_daemon(sc_fd, reg_msg);
+        close(sc_fd);
 
         // [TODO]: 将server_fd加入epoll_fd_
         struct epoll_event epoll_ev{};
