@@ -35,10 +35,19 @@ public:
 
     void publish(const std::string& msg) {
         std::lock_guard<std::mutex> lock(sub_fds_mutex_);
-        for (const auto sub_fd : sub_fds_) {
-            if (write(sub_fd, msg.c_str(), msg.length()) == -1) {
-                // [TODO]：错误处理
-                continue;
+        // for (const auto sub_fd : sub_fds_) {
+        //     if (write(sub_fd, msg.c_str(), msg.length()) == -1) {
+        //         // [TODO]：错误处理
+        //         close(sub_fd);
+        //         continue;
+        //     }
+        // }
+        for (auto it_fd = sub_fds_.begin(); it_fd != sub_fds_.end();) {
+            if (write(*it_fd, msg.c_str(), msg.length()) == -1) {
+                close(*it_fd);
+                it_fd = sub_fds_.erase(it_fd);
+            } else {
+                ++it_fd;
             }
         }
     }
@@ -266,7 +275,6 @@ public:
      * @brief:  节点的impl处理回调
      */
     void spin() {
-        // [TODO]: epoll_wait 循环
         auto& params = ParamManager::instance();
         int epoll_max_events = params.get<int>("runtime.epoll_max_events", 1);
         // std::cout << "epoll_max_events" << epoll_max_events << "\n";

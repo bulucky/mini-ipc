@@ -5,9 +5,13 @@
 #include <thread>
 #include <chrono>
 
+#include <csignal>
+
 using namespace std::chrono_literals;
 
 int main(int argc, char const* argv[]) {
+    // 忽略Broken Pipe信号
+    signal(SIGPIPE, SIG_IGN);
     auto& params = mini_ipc::ParamManager::instance();
 
     if (!params.load("/home/hizaml/mini-ipc/core/config/comm.yaml")) {
