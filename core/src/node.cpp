@@ -35,13 +35,7 @@ public:
 
     void publish(const std::string& msg) {
         std::lock_guard<std::mutex> lock(sub_fds_mutex_);
-        // for (const auto sub_fd : sub_fds_) {
-        //     if (write(sub_fd, msg.c_str(), msg.length()) == -1) {
-        //         // [TODO]：错误处理
-        //         close(sub_fd);
-        //         continue;
-        //     }
-        // }
+
         for (auto it_fd = sub_fds_.begin(); it_fd != sub_fds_.end();) {
             if (write(*it_fd, msg.c_str(), msg.length()) == -1) {
                 close(*it_fd);
@@ -242,6 +236,16 @@ public:
             if (connect(client_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
                 perror("connect");
                 close(client_fd);
+                // 连接失败可能publisher已经下线, 退回至等待模式
+                pending_sub_topics[sc_fd] = topic_name;
+                pending_sub_callbacks[sc_fd] = callback;
+
+                epoll_ev.data.fd = sc_fd;
+                epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sc_fd, &epoll_ev);
+
+                std::cout
+                    << "[Node: " << name_ << "] Publisher maybe offline, Waitting"
+                    << "\n ";
                 return nullptr;
             }
 
