@@ -6,7 +6,7 @@
 int main(int argc, char const* argv[]) {
     auto& params = mini_ipc::ParamManager::instance();
 
-    if (!params.load("/home/hizaml/mini-ipc/core/config/comm.yaml")) {
+    if (!params.load("core/config/comm.yaml")) {
         std::cerr << "Failed to load config, using defaults.\n";
     }
 

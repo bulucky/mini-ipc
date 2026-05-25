@@ -5,6 +5,9 @@ build/
 .codex
 AGENTS.md
 
+# claude
+.claude
+
 # dashboard
 dashboard/node_modules
 dashboard/dist
