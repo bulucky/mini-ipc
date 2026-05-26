@@ -73,18 +73,19 @@ jobs:
           DAEMON_PID=$!
           sleep 1
 
-          # 2. 启动 listener(后台,捕获输出)
-          ./build/core/examples/listener > /tmp/listener.log 2>&1 &
+          # 2. 启动 listener(后台, line-buffered 确保日志落盘)
+          stdbuf -oL ./build/core/examples/listener > /tmp/listener.log 2>&1 &
           LISTENER_PID=$!
           sleep 1
 
-          # 3. 启动 talker 发 3 条消息后退出
+          # 3. 启动 talker(timeout 5s 后自动终止)
           timeout 5 ./build/core/examples/talker > /tmp/talker.log 2>&1 || true
           sleep 1
 
           # 4. 验证 listener 收到了消息
           kill $LISTENER_PID 2>/dev/null || true
           kill $DAEMON_PID 2>/dev/null || true
+          wait 2>/dev/null
 
           echo "=== Listener output ==="
           cat /tmp/listener.log
