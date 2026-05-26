@@ -8,9 +8,10 @@ on:
 
 env:
   BUILD_TYPE: Release
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ── C++ 构建 + 测试 ──────────────────────────────────
+  # ── C++ 构建 + 测试
   build-and-test:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
@@ -19,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---- 系统依赖 ----
+      # ---- 系统依赖 ---
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
