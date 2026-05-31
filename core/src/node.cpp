@@ -2,6 +2,7 @@
 #include "mini_ipc/param_manager.hpp"
 
 #include <unistd.h>
+#include <sys/uio.h>
 #include <sys/epoll.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -37,7 +38,15 @@ public:
         std::lock_guard<std::mutex> lock(sub_fds_mutex_);
 
         for (auto it_fd = sub_fds_.begin(); it_fd != sub_fds_.end();) {
-            if (write(*it_fd, msg.c_str(), msg.length()) == -1) {
+            uint32_t net_len = htonl(static_cast<uint32_t>(msg.size()));
+            struct iovec iov[2]{
+                {&net_len, 4},
+                {const_cast<char*>(msg.data()), msg.size()},
+            };
+            // debug
+            // printf("iov_len: %zu", iov->iov_len);
+
+            if (writev(*it_fd, iov, 2) == -1) {
                 close(*it_fd);
                 it_fd = sub_fds_.erase(it_fd);
             } else {
@@ -81,10 +90,12 @@ public:
     std::unordered_map<int, Subscriber::CallbackType> pending_sub_callbacks;
 
     // server_fd --> Publisher::Impl
-    std::unordered_map<int, std::shared_ptr<Publisher::Impl>> publishers_;
+    std::unordered_map<int, std::shared_ptr<Publisher::Impl>> publishers;
     // client_fd --> Subscriber::Callback
     std::unordered_map<int, Subscriber::CallbackType> subscriber_callbacks;
 
+    // subscriber_fd --> buffer
+    std::unordered_map<int, std::vector<char>> sub_read_buffers;
 
     Impl(std::string name)
         : name_(std::move(name)) {
@@ -191,7 +202,7 @@ public:
         epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, server_fd, &epoll_ev);
 
         auto pub_impl = std::make_shared<Publisher::Impl>(topic_name, server_fd);
-        publishers_[server_fd] = pub_impl;
+        publishers[server_fd] = pub_impl;
 
         std::cout << "[Node: " << name_ << "] Publisher for '" << topic_name << "' listening on port " << assigned_port << "\n";
 
@@ -253,6 +264,7 @@ public:
             epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &epoll_ev);
 
             subscriber_callbacks[client_fd] = std::move(callback);
+            sub_read_buffers[client_fd] = std::vector<char>{};
             close(sc_fd);
 
             std::cout
@@ -291,30 +303,48 @@ public:
                 int active_fd = events[i].data.fd;
 
                 // Publisher的server_fd有新的Subscriber连接
-                if (publishers_.find(active_fd) != publishers_.end()) {
+                if (publishers.find(active_fd) != publishers.end()) {
                     int new_sub_fd;
                     if ((new_sub_fd = accept(active_fd, nullptr, nullptr)) != -1) {
-                        std::lock_guard<std::mutex> lock(publishers_[active_fd]->sub_fds_mutex_);
-                        publishers_[active_fd]->sub_fds_.push_back(new_sub_fd);
+                        std::lock_guard<std::mutex> lock(publishers[active_fd]->sub_fds_mutex_);
+                        publishers[active_fd]->sub_fds_.push_back(new_sub_fd);
                         std::cout << "[Node: " << name_ << "] Accepted new subscriber connection.\n";
                     }
                 }
                 // Subscriber 的 client_fd有接受到数据
                 else if (subscriber_callbacks.find(active_fd) != subscriber_callbacks.end()) {
-                    char buffer[1024] = {0};
+                    char buffer[4096] = {0};
                     int read_bytes = read(active_fd, buffer, sizeof(buffer));
 
-                    if (read_bytes > 0) {
-                        // 触发回调函数
-                        std::string msg{buffer};
-                        subscriber_callbacks[active_fd](msg);
-                    } else if (read_bytes == 0) { // EOF, 另一端关闭
+                    // EOF, publisher offline
+                    if (read_bytes == 0) {
                         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
                         close(active_fd);
                         subscriber_callbacks.erase(active_fd);
+                        sub_read_buffers.erase(active_fd);
 
                         std::cout << "[Node: " << name_ << "] Publisher disconnected.\n";
                         break;
+                    } // receive data and parse
+                    else {
+                        auto sub_buffer = sub_read_buffers[active_fd];
+                        sub_buffer.insert(sub_buffer.end(), buffer, buffer + read_bytes);
+                        // parse
+                        while (sub_buffer.size() >= 4) {
+                            uint32_t net_len;
+                            std::memcpy(&net_len, sub_buffer.data(), 4);
+                            uint32_t msg_len = ntohl(net_len);
+
+                            // 完整帧 sub_buffer.size() == 4 + msg_len
+                            if (sub_buffer.size() < 4 + msg_len) {
+                                break;
+                            }
+
+                            std::string msg(sub_buffer.data() + 4, msg_len);
+                            subscriber_callbacks[active_fd](msg);
+
+                            sub_buffer.erase(sub_buffer.begin(), sub_buffer.begin() + 4 + msg_len);
+                        }
                     }
                 } else if (pending_sub_topics.find(active_fd) != pending_sub_topics.end()) {
                     char buffer[1024] = {};
@@ -363,6 +393,7 @@ public:
                         epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &epoll_ev);
 
                         subscriber_callbacks[client_fd] = std::move(callback);
+                        sub_read_buffers[client_fd] = std::vector<char>{};
                     }
                 }
             }
