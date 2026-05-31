@@ -266,26 +266,13 @@ public:
         epoll_ev.events = EPOLLIN;
         // 查询话题时发布者已经上线，返回端口
         if (strcmp(response.substr(0, 4).c_str(), "WAIT") != 0) {
-            // int client_fd = 0;
-            // if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-            //     perror("socket");
-            //     return nullptr;
-            // }
-
-            // unsigned short target_port = std::stoi(response);
-            // struct sockaddr_in server_addr = {};
-            // server_addr.sin_family = AF_INET;
-            // server_addr.sin_port = htons(target_port);
-            // inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
-
             int client_fd = 0;
             unsigned short target_port = std::stoi(response);
             if ((client_fd = connect_to_publisher(target_port, topic_name, callback)) == -1) {
-                perror("connect");
-                // close(client_fd);
+                perror("connect_to_publisher");
                 // 连接失败可能publisher已经下线, 退回至等待模式
                 pending_sub_topics[sc_fd] = topic_name;
-                pending_sub_callbacks[sc_fd] = callback;
+                pending_sub_callbacks[sc_fd] = std::move(callback);
 
                 epoll_ev.data.fd = sc_fd;
                 epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sc_fd, &epoll_ev);
@@ -296,12 +283,6 @@ public:
                 return nullptr;
             }
 
-            epoll_ev.data.fd = client_fd;
-            epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &epoll_ev);
-
-            subscriber_callbacks[client_fd] = std::move(callback);
-            sub_topics[client_fd] = topic_name;
-            sub_read_buffers[client_fd] = std::vector<char>{};
             close(sc_fd);
 
             std::cout
@@ -311,7 +292,7 @@ public:
         } else if (strcmp(response.substr(0, 4).c_str(), "WAIT") == 0) {
             // 加入等待列表
             pending_sub_topics[sc_fd] = topic_name;
-            pending_sub_callbacks[sc_fd] = callback;
+            pending_sub_callbacks[sc_fd] = std::move(callback);
 
             epoll_ev.data.fd = sc_fd;
             epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sc_fd, &epoll_ev);
@@ -366,47 +347,36 @@ public:
 
                         std::cout << "[Node: " << name_ << "] Publisher disconnected...\n";
 
-                        // // publisher offline, subscriber进入pending态
-                        // int sc_fd = 0;
-                        // std::string response = talk_to_discovery_daemon(sc_fd, "SUB " + topic_name);
-                        // if (response.empty() || response.compare(0, 4, "WAIT") == 0) {
-                        //     // publisher 仍未上线
-                        //     pending_sub_topics[sc_fd] = std::move(topic_name);
-                        //     pending_sub_callbacks[sc_fd] = std::move(callback);
+                        // publisher offline, subscriber进入pending态
+                        int sc_fd = 0;
+                        std::string response = talk_to_discovery_daemon(sc_fd, "SUB " + topic_name);
+                        if (response.empty() || response.compare(0, 4, "WAIT") == 0) {
+                            // publisher 仍未上线, 进入pending态
+                            pending_sub_topics[sc_fd] = topic_name;
+                            pending_sub_callbacks[sc_fd] = std::move(callback);
 
-                        //     struct epoll_event ev{};
-                        //     ev.data.fd = sc_fd;
-                        //     ev.events = EPOLLIN;
-                        //     epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sc_fd, &ev);
-                        // }
+                            struct epoll_event ev{};
+                            ev.data.fd = sc_fd;
+                            ev.events = EPOLLIN;
+                            epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sc_fd, &ev);
+                        }
                         // // publisher已经重新上线, 直接连接
                         // else {
                         //     close(sc_fd);
-                        //     int client_fd = 0;
-                        //     if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-                        //         perror("socket");
-                        //         break;
-                        //     }
-
                         //     unsigned short target_port = std::stoi(response);
-                        //     struct sockaddr_in server_addr = {};
-                        //     server_addr.sin_family = AF_INET;
-                        //     server_addr.sin_port = htons(target_port);
-                        //     inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
+                        //     int client_fd = 0;
+                        //     if ((client_fd = connect_to_publisher(target_port, topic_name, callback)) == -1) {
+                        //         perror("connect_to_publisher");
 
-                        //     if (connect(client_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
-                        //         perror("connect");
-                        //         close(client_fd);
-                        //         break;
+                        //         // int retry_fd = 0;
+                        //         // std::string r = talk_to_discovery_daemon(retry_fd, "SUB " + topic_name);
+                        //         // pending_sub_topics[retry_fd] = topic_name;
+                        //         // pending_sub_callbacks[retry_fd] = std::move(callback);
+                        //         // struct epoll_event ev{};
+                        //         // ev.events = EPOLLIN;
+                        //         // ev.data.fd = retry_fd;
+                        //         // epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, retry_fd, &ev);
                         //     }
-
-                        //     struct epoll_event ev{};
-                        //     ev.data.fd = client_fd;
-                        //     epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &ev);
-
-                        //     subscriber_callbacks[client_fd] = std::move(callback);
-                        //     sub_topics[client_fd] = std::move(topic_name);
-                        //     sub_read_buffers[client_fd] = std::vector<char>{};
                         // }
 
                         break;
@@ -465,31 +435,12 @@ public:
                         pending_sub_topics.erase(active_fd);
                         pending_sub_callbacks.erase(active_fd);
 
-                        // 新建连接
-                        struct sockaddr_in server_addr = {};
-                        server_addr.sin_family = AF_INET;
-                        server_addr.sin_port = htons(target_port);
-                        inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
-
                         int client_fd = 0;
-                        if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-                            perror("socket");
+                        if ((client_fd = connect_to_publisher(target_port, topic_name, callback)) == -1) {
+                            perror("connect_to_publisher");
+
                             continue;
                         }
-                        if (connect(client_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
-                            perror("connect");
-                            close(client_fd);
-                            continue;
-                        }
-
-                        struct epoll_event epoll_ev{};
-                        epoll_ev.events = EPOLLIN;
-                        epoll_ev.data.fd = client_fd;
-                        epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &epoll_ev);
-
-                        subscriber_callbacks[client_fd] = std::move(callback);
-                        sub_topics[client_fd] = topic_name;
-                        sub_read_buffers[client_fd] = std::vector<char>{};
 
                         std::cout << "[Node: " << name_ << "] Publisher go online and connected...\n";
                     }
