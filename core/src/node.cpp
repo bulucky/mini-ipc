@@ -325,9 +325,15 @@ public:
 
                         std::cout << "[Node: " << name_ << "] Publisher disconnected.\n";
                         break;
-                    } // receive data and parse
+                    }
+                    // error handle
+                    else if (read_bytes == -1) {
+                        perror("read");
+                        break;
+                    }
+                    // receive data and parse
                     else {
-                        auto sub_buffer = sub_read_buffers[active_fd];
+                        auto& sub_buffer = sub_read_buffers[active_fd];
                         sub_buffer.insert(sub_buffer.end(), buffer, buffer + read_bytes);
                         // parse
                         while (sub_buffer.size() >= 4) {
@@ -394,6 +400,8 @@ public:
 
                         subscriber_callbacks[client_fd] = std::move(callback);
                         sub_read_buffers[client_fd] = std::vector<char>{};
+
+                        std::cout << "[Node: " << name_ << "] Publisher go online and connected...\n";
                     }
                 }
             }
