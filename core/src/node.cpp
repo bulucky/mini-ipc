@@ -276,6 +276,7 @@ public:
                 // 连接失败可能publisher已经下线, 退回至等待模式
                 int wt_fd = 0;
                 // 大概率还未上线, 当前直接进行pending态
+                std::this_thread::sleep_for(std::chrono::seconds(3));
                 talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
 
                 pending_sub_topics[wt_fd] = topic_name;
@@ -352,7 +353,7 @@ public:
 
                         std::cout << "[Node: " << name_ << "] Publisher disconnected...\n";
 
-                        // std::this_thread::sleep_for(std::chrono::seconds(1));
+                        std::this_thread::sleep_for(std::chrono::seconds(3));
                         // publisher offline, subscriber进入pending态
                         int sc_fd = 0;
                         std::string response = talk_to_discovery_daemon(sc_fd, "SUB " + topic_name);
@@ -376,6 +377,7 @@ public:
 
                                 int wt_fd = 0;
                                 // 大概率还未上线, 当前直接进行pending态
+                                std::this_thread::sleep_for(std::chrono::seconds(3));
                                 talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
 
                                 pending_sub_topics[wt_fd] = topic_name;
@@ -450,6 +452,7 @@ public:
                             perror("connect_to_publisher");
                             int wt_fd = 0;
                             // 大概率还未上线, 当前直接进行pending态
+                            std::this_thread::sleep_for(std::chrono::seconds(3));
                             talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
 
                             pending_sub_topics[wt_fd] = topic_name;
