@@ -266,24 +266,27 @@ public:
         epoll_ev.events = EPOLLIN;
         // 查询话题时发布者已经上线，返回端口
         if (strcmp(response.substr(0, 4).c_str(), "WAIT") != 0) {
+            close(sc_fd);
+
             int client_fd = 0;
             unsigned short target_port = std::stoi(response);
             if ((client_fd = connect_to_publisher(target_port, topic_name, callback)) == -1) {
                 perror("connect_to_publisher");
                 // 连接失败可能publisher已经下线, 退回至等待模式
-                pending_sub_topics[sc_fd] = topic_name;
-                pending_sub_callbacks[sc_fd] = std::move(callback);
+                int wt_fd = 0;
+                talk_to_discovery_daemon(wt_fd, topic_name);
 
-                epoll_ev.data.fd = sc_fd;
-                epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sc_fd, &epoll_ev);
+                pending_sub_topics[wt_fd] = topic_name;
+                pending_sub_callbacks[wt_fd] = std::move(callback);
+
+                epoll_ev.data.fd = wt_fd;
+                epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wt_fd, &epoll_ev);
 
                 std::cout
                     << "[Node: " << name_ << "] Publisher maybe offline, Waitting"
                     << "\n ";
                 return nullptr;
             }
-
-            close(sc_fd);
 
             std::cout
                 << "[Node: " << name_ << "] P2P Connected to Publisher on port " << target_port

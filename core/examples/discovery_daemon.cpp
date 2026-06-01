@@ -85,12 +85,13 @@ int main(int argc, char const* argv[]) {
             // 已有连接有数据
             char buffer[256] = {};
             ssize_t read_bytes = read(fd, buffer, sizeof(buffer));
-            // 对方关闭连接
+            // 对方关闭连接或错误
             if (read_bytes <= 0) {
                 // 清理缓存
                 for (auto& [topic, entry] : topic_registry) {
                     auto& waiting_fds = entry.waiting_fds;
-                    waiting_fds.erase(std::remove(waiting_fds.begin(), waiting_fds.end(), fd), waiting_fds.end());
+                    waiting_fds.erase(std::remove(waiting_fds.begin(), waiting_fds.end(), fd),
+                                      waiting_fds.end());
                 }
                 epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, fd, nullptr);
                 close(fd);
