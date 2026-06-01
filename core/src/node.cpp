@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include <mutex>
+#include <thread>
 #include <utility>
 #include <iostream>
 #include <unordered_map>
@@ -274,7 +275,8 @@ public:
                 perror("connect_to_publisher");
                 // 连接失败可能publisher已经下线, 退回至等待模式
                 int wt_fd = 0;
-                talk_to_discovery_daemon(wt_fd, topic_name);
+                // 大概率还未上线, 当前直接进行pending态
+                talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
 
                 pending_sub_topics[wt_fd] = topic_name;
                 pending_sub_callbacks[wt_fd] = std::move(callback);
@@ -350,6 +352,7 @@ public:
 
                         std::cout << "[Node: " << name_ << "] Publisher disconnected...\n";
 
+                        // std::this_thread::sleep_for(std::chrono::seconds(1));
                         // publisher offline, subscriber进入pending态
                         int sc_fd = 0;
                         std::string response = talk_to_discovery_daemon(sc_fd, "SUB " + topic_name);
@@ -363,24 +366,27 @@ public:
                             ev.events = EPOLLIN;
                             epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sc_fd, &ev);
                         }
-                        // // publisher已经重新上线, 直接连接
-                        // else {
-                        //     close(sc_fd);
-                        //     unsigned short target_port = std::stoi(response);
-                        //     int client_fd = 0;
-                        //     if ((client_fd = connect_to_publisher(target_port, topic_name, callback)) == -1) {
-                        //         perror("connect_to_publisher");
+                        // publisher已经重新上线, 直接连接
+                        else {
+                            close(sc_fd);
+                            unsigned short target_port = std::stoi(response);
+                            int client_fd = 0;
+                            if ((client_fd = connect_to_publisher(target_port, topic_name, callback)) == -1) {
+                                perror("connect_to_publisher");
 
-                        //         // int retry_fd = 0;
-                        //         // std::string r = talk_to_discovery_daemon(retry_fd, "SUB " + topic_name);
-                        //         // pending_sub_topics[retry_fd] = topic_name;
-                        //         // pending_sub_callbacks[retry_fd] = std::move(callback);
-                        //         // struct epoll_event ev{};
-                        //         // ev.events = EPOLLIN;
-                        //         // ev.data.fd = retry_fd;
-                        //         // epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, retry_fd, &ev);
-                        //     }
-                        // }
+                                int wt_fd = 0;
+                                // 大概率还未上线, 当前直接进行pending态
+                                talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
+
+                                pending_sub_topics[wt_fd] = topic_name;
+                                pending_sub_callbacks[wt_fd] = std::move(callback);
+
+                                struct epoll_event ev{};
+                                ev.events = EPOLLIN;
+                                ev.data.fd = wt_fd;
+                                epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wt_fd, &ev);
+                            }
+                        }
 
                         break;
                     }
@@ -440,7 +446,19 @@ public:
 
                         int client_fd = 0;
                         if ((client_fd = connect_to_publisher(target_port, topic_name, callback)) == -1) {
+                            // close(client_fd);
                             perror("connect_to_publisher");
+                            int wt_fd = 0;
+                            // 大概率还未上线, 当前直接进行pending态
+                            talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
+
+                            pending_sub_topics[wt_fd] = topic_name;
+                            pending_sub_callbacks[wt_fd] = std::move(callback);
+
+                            struct epoll_event ev{};
+                            ev.events = EPOLLIN;
+                            ev.data.fd = wt_fd;
+                            epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wt_fd, &ev);
 
                             continue;
                         }
