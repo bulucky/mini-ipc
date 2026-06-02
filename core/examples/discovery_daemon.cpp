@@ -74,12 +74,6 @@ int main(int argc, char const* argv[]) {
         int event_num = epoll_wait(epoll_fd_discovery, events, 64, -1);
         for (int i = 0; i < event_num; ++i) {
             int active_fd = events[i].data.fd;
-            // // 检查是否是publisher掉线
-            // for (auto& entry : topic_registry) {
-            //     if (entry.second.publisher_fd == active_fd) {
-            //         entry.second.port_avilable = false;
-            //     }
-            // }
 
             // 新连接
             if (active_fd == server_fd) {

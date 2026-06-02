@@ -11,7 +11,6 @@
 #include <cstring>
 
 #include <mutex>
-#include <thread>
 #include <utility>
 #include <iostream>
 #include <unordered_map>
