@@ -226,15 +226,15 @@ public:
         // 向守护进程注册
         // PUB <topi>c <port>
         std::string reg_msg = "PUB " + topic_name + " " + std::to_string(assigned_port);
-        int sc_fd = 0;
-        talk_to_discovery_daemon(sc_fd, reg_msg);
-        close(sc_fd);
+        int pub_fd = 0;
+        // int sc_fd = 0;
+        talk_to_discovery_daemon(pub_fd, reg_msg);
+        // close(sc_fd);
 
-        // [TODO]: 将server_fd加入epoll_fd_
-        struct epoll_event epoll_ev{};
-        epoll_ev.events = EPOLLIN;
-        epoll_ev.data.fd = server_fd;
-        epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, server_fd, &epoll_ev);
+        struct epoll_event ev{};
+        ev.events = EPOLLIN;
+        ev.data.fd = server_fd;
+        epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, server_fd, &ev);
 
         auto pub_impl = std::make_shared<Publisher::Impl>(topic_name, server_fd);
         publishers[server_fd] = pub_impl;
@@ -276,7 +276,6 @@ public:
                 // 连接失败可能publisher已经下线, 退回至等待模式
                 int wt_fd = 0;
                 // 大概率还未上线, 当前直接进行pending态
-                std::this_thread::sleep_for(std::chrono::seconds(3));
                 talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
 
                 pending_sub_topics[wt_fd] = topic_name;
@@ -353,7 +352,6 @@ public:
 
                         std::cout << "[Node: " << name_ << "] Publisher disconnected...\n";
 
-                        std::this_thread::sleep_for(std::chrono::seconds(3));
                         // publisher offline, subscriber进入pending态
                         int sc_fd = 0;
                         std::string response = talk_to_discovery_daemon(sc_fd, "SUB " + topic_name);
@@ -377,7 +375,6 @@ public:
 
                                 int wt_fd = 0;
                                 // 大概率还未上线, 当前直接进行pending态
-                                std::this_thread::sleep_for(std::chrono::seconds(3));
                                 talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
 
                                 pending_sub_topics[wt_fd] = topic_name;
@@ -452,7 +449,6 @@ public:
                             perror("connect_to_publisher");
                             int wt_fd = 0;
                             // 大概率还未上线, 当前直接进行pending态
-                            std::this_thread::sleep_for(std::chrono::seconds(3));
                             talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
 
                             pending_sub_topics[wt_fd] = topic_name;
