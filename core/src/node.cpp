@@ -201,14 +201,14 @@ public:
         pending_sub_callbacks[wt_fd] = std::move(callback);
 
         if (ev == nullptr) {
-            struct epoll_event* ev{};
-            ev->events = EPOLLIN;
-            ev->data.fd = wt_fd;
+            struct epoll_event ev{};
+            ev.events = EPOLLIN;
+            ev.data.fd = wt_fd;
+            epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wt_fd, &ev);
         } else {
             ev->data.fd = wt_fd;
+            epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wt_fd, ev);
         }
-
-        epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wt_fd, ev);
     }
 
     /**
@@ -250,9 +250,8 @@ public:
         // PUB <topi>c <port>
         std::string reg_msg = "PUB " + topic_name + " " + std::to_string(assigned_port);
         int pub_fd = 0;
-        // int sc_fd = 0;
+
         talk_to_discovery_daemon(pub_fd, reg_msg);
-        // close(sc_fd);
 
         struct epoll_event ev{};
         ev.events = EPOLLIN;
@@ -274,7 +273,7 @@ public:
      * @return: std::shared_ptr<Publisher::Impl> 订阅者的impl的地址
      */
     std::shared_ptr<Subscriber::Impl> init_subscriber(
-        const std::string& topic_name, Subscriber::CallbackType callback) {
+        const std::string& topic_name, Subscriber::CallbackType callback) { // NOLINT
         // 向守护进程查询话题端口信息
         // SUB <topic>
         int sc_fd = 0;
@@ -298,16 +297,6 @@ public:
                 perror("connect_to_publisher");
 
                 connect_failed_handle(topic_name, callback, &ev);
-                // // 连接失败可能publisher已经下线, 退回至等待模式
-                // int wt_fd = 0;
-                // // 大概率还未上线, 当前直接进行pending态
-                // talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
-
-                // pending_sub_topics[wt_fd] = topic_name;
-                // pending_sub_callbacks[wt_fd] = std::move(callback);
-
-                // ev.data.fd = wt_fd;
-                // epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wt_fd, &ev);
 
                 std::cout
                     << "[Node: " << name_ << "] Publisher maybe offline, Waitting"
@@ -321,12 +310,11 @@ public:
             return std::make_shared<Subscriber::Impl>(client_fd);
         } else if (strcmp(response.substr(0, 4).c_str(), "WAIT") == 0) {
             // 加入等待列表
-            // pending_sub_topics[sc_fd] = topic_name;
-            // pending_sub_callbacks[sc_fd] = std::move(callback);
+            pending_sub_topics[sc_fd] = topic_name;
+            pending_sub_callbacks[sc_fd] = std::move(callback);
 
-            // ev.data.fd = sc_fd;
-            // epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sc_fd, &ev);
-            connect_failed_handle(topic_name, callback, &ev);
+            ev.data.fd = sc_fd;
+            epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sc_fd, &ev);
 
             std::cout
                 << "[Node: " << name_ << "] Waitting Publisher Go online "
@@ -400,17 +388,6 @@ public:
                                 perror("connect_to_publisher");
 
                                 connect_failed_handle(topic_name, callback);
-                                // int wt_fd = 0;
-                                // // 大概率还未上线, 当前直接进行pending态
-                                // talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
-
-                                // pending_sub_topics[wt_fd] = topic_name;
-                                // pending_sub_callbacks[wt_fd] = std::move(callback);
-
-                                // struct epoll_event ev{};
-                                // ev.events = EPOLLIN;
-                                // ev.data.fd = wt_fd;
-                                // epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wt_fd, &ev);
                             }
                         }
 
@@ -472,21 +449,9 @@ public:
 
                         int client_fd = 0;
                         if ((client_fd = connect_to_publisher(target_port, topic_name, callback)) == -1) {
-                            // close(client_fd);
                             perror("connect_to_publisher");
 
                             connect_failed_handle(topic_name, callback);
-                            // int wt_fd = 0;
-                            // // 大概率还未上线, 当前直接进行pending态
-                            // talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
-
-                            // pending_sub_topics[wt_fd] = topic_name;
-                            // pending_sub_callbacks[wt_fd] = std::move(callback);
-
-                            // struct epoll_event ev{};
-                            // ev.events = EPOLLIN;
-                            // ev.data.fd = wt_fd;
-                            // epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wt_fd, &ev);
 
                             continue;
                         }
