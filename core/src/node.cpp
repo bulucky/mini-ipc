@@ -85,18 +85,18 @@ public:
     // pending态的subscriber信息
     struct PendingSubInfo {
         // 管理等待 discovry 通知的 fd
-        std::string pending_sub_topics;
-        Subscriber::CallbackType pending_sub_callbacks;
+        std::string topic;
+        Subscriber::CallbackType callback;
     };
 
     // runing态的subcriber信息
     struct SubInfo {
         // fd --> topic
-        std::string sub_topics;
+        std::string topic;
         // client_fd --> Subscriber::Callback
-        Subscriber::CallbackType subscriber_callbacks;
+        Subscriber::CallbackType callback;
         // subscriber_fd --> buffer
-        std::vector<char> sub_read_buffers;
+        std::vector<char> read_buffer;
     };
 
     std::string name_;
@@ -186,16 +186,19 @@ public:
         struct epoll_event ev{};
         ev.events = EPOLLIN;
         ev.data.fd = client_fd;
-        epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &ev);
+        if ((epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &ev) == -1) &&
+            (errno == EEXIST || errno == EBADF)) {
+            perror("epoll_ctl");
+            close(client_fd);
+
+            return -1;
+        }
 
         sub_infos[client_fd] = SubInfo{
             topic_name,
             std::move(callback),
             std::vector<char>{},
         };
-        // sub_infos.sub_topics[client_fd] = topic_name;
-        // sub_infos.subscriber_callbacks[client_fd] = std::move(callback);
-        // sub_infos.sub_read_buffers[client_fd] = std::vector<char>{};
 
         return client_fd;
     }
@@ -213,8 +216,6 @@ public:
             std::move(topic_name),
             std::move(callback),
         };
-        // pending_sub_infos.pending_sub_topics[wt_fd] = std::move(topic_name);
-        // pending_sub_infos.pending_sub_callbacks[wt_fd] = std::move(callback);
 
         if (ev == nullptr) {
             struct epoll_event ev{};
@@ -224,6 +225,20 @@ public:
         } else {
             ev->data.fd = wt_fd;
             epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wt_fd, ev);
+        }
+    }
+
+    /**
+     * @brief:  当publisher断开后清理subscriber的fd资源
+     * @param:  int active_fd(running or pending)
+     */
+    void cleanup_subscriber(int active_fd) {
+        epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
+        close(active_fd);
+        if (sub_infos.find(active_fd) != sub_infos.end()) {
+            sub_infos.erase(active_fd);
+        } else if (pending_sub_infos.find(active_fd) != pending_sub_infos.end()) {
+            pending_sub_infos.erase(active_fd);
         }
     }
 
@@ -312,7 +327,7 @@ public:
             if ((client_fd = connect_to_publisher(target_port, topic_name, callback)) == -1) {
                 perror("connect_to_publisher");
 
-                connect_failed_handle(topic_name, callback, &ev);
+                connect_failed_handle(topic_name, std::move(callback), &ev);
 
                 std::cout
                     << "[Node: " << name_ << "] Publisher maybe offline, Waitting"
@@ -330,8 +345,6 @@ public:
                 topic_name,
                 std::move(callback),
             };
-            // pending_sub_infos.pending_sub_topics[sc_fd] = topic_name;
-            // pending_sub_infos.pending_sub_callbacks[sc_fd] = std::move(callback);
 
             ev.data.fd = sc_fd;
             epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sc_fd, &ev);
@@ -375,15 +388,10 @@ public:
 
                     // EOF, publisher offline
                     if (read_bytes == 0) {
-                        auto topic_name = std::move(sub_infos[active_fd].sub_topics);
-                        auto callback = std::move(sub_infos[active_fd].subscriber_callbacks);
+                        auto topic_name = std::move(sub_infos[active_fd].topic);
+                        auto callback = std::move(sub_infos[active_fd].callback);
 
-                        epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
-                        close(active_fd);
-
-                        sub_infos.erase(active_fd);
-                        // sub_infos.sub_topics.erase(active_fd);
-                        // sub_infos.sub_read_buffers.erase(active_fd);
+                        cleanup_subscriber(active_fd);
 
                         std::cout << "[Node: " << name_ << "] Publisher disconnected...\n";
 
@@ -396,8 +404,6 @@ public:
                                 topic_name,
                                 std::move(callback),
                             };
-                            // pending_sub_infos.pending_sub_topics[sc_fd] = topic_name;
-                            // pending_sub_infos.pending_sub_callbacks[sc_fd] = std::move(callback);
 
                             struct epoll_event ev{};
                             ev.data.fd = sc_fd;
@@ -412,7 +418,7 @@ public:
                             if ((client_fd = connect_to_publisher(target_port, topic_name, callback)) == -1) {
                                 perror("connect_to_publisher");
 
-                                connect_failed_handle(topic_name, callback);
+                                connect_failed_handle(std::move(topic_name), std::move(callback));
                             }
                         }
 
@@ -424,11 +430,13 @@ public:
                             continue;
                         }
                         perror("read");
+                        cleanup_subscriber(active_fd);
+
                         break;
                     }
                     // receive data and parse
                     else {
-                        auto& sub_buffer = sub_infos[active_fd].sub_read_buffers;
+                        auto& sub_buffer = sub_infos[active_fd].read_buffer;
                         sub_buffer.insert(sub_buffer.end(), buffer, buffer + read_bytes);
                         // parse
                         while (sub_buffer.size() >= 4) {
@@ -442,7 +450,7 @@ public:
                             }
 
                             std::string msg(sub_buffer.data() + 4, msg_len);
-                            sub_infos[active_fd].subscriber_callbacks(msg);
+                            sub_infos[active_fd].callback(msg);
 
                             sub_buffer.erase(sub_buffer.begin(), sub_buffer.begin() + 4 + msg_len);
                         }
@@ -453,40 +461,33 @@ public:
                     char buffer[1024] = {};
                     int read_bytes = read(active_fd, buffer, sizeof(buffer));
 
-                    // error handle
+                    // error or 0 handle
                     if (read_bytes == 0) {
+                        cleanup_subscriber(active_fd);
+
                         continue;
                     } else if (read_bytes == -1) {
                         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
                             continue;
                         }
-                        epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
-                        close(active_fd);
 
-                        pending_sub_infos.erase(active_fd);
-                        // pending_sub_infos.pending_sub_topics.erase(active_fd);
-                        // pending_sub_infos.pending_sub_callbacks.erase(active_fd);
+                        cleanup_subscriber(active_fd);
                     }
 
                     std::string msg(buffer, read_bytes);
                     if (strcmp(msg.substr(0, 4).c_str(), "PORT") == 0) {
                         // 关闭查询fd, 新建fd用于通信
                         unsigned short target_port = std::stoi(msg.substr(5));
-                        auto topic_name = std::move(pending_sub_infos[active_fd].pending_sub_topics);
-                        auto callback = std::move(pending_sub_infos[active_fd].pending_sub_callbacks);
+                        auto topic_name = std::move(pending_sub_infos[active_fd].topic);
+                        auto callback = std::move(pending_sub_infos[active_fd].callback);
 
-                        epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
-                        close(active_fd);
-
-                        pending_sub_infos.erase(active_fd);
-                        // pending_sub_infos.pending_sub_topics.erase(active_fd);
-                        // pending_sub_infos.pending_sub_callbacks.erase(active_fd);
+                        cleanup_subscriber(active_fd);
 
                         int client_fd = 0;
                         if ((client_fd = connect_to_publisher(target_port, topic_name, callback)) == -1) {
                             perror("connect_to_publisher");
 
-                            connect_failed_handle(topic_name, callback);
+                            connect_failed_handle(std::move(topic_name), std::move(callback));
 
                             continue;
                         }
