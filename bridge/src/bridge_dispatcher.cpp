@@ -1,5 +1,7 @@
 #include "mini_ipc/bridge_dispatcher.hpp"
+#include "mini_ipc/websocket_session.hpp"
 
+#include <boost/asio/post.hpp>
 #include "nlohmann/json.hpp"
 
 #include <string>
@@ -8,10 +10,10 @@
 namespace mini_ipc {
 using json = nlohmann::json;
 
-BridgeDispatcher::BridgeDispatcher(Node& node)
-    : node_(node) {}
+BridgeDispatcher::BridgeDispatcher(Node& node, boost::asio::io_context& ioc)
+    : node_(node), ioc_(ioc) {}
 
-std::string BridgeDispatcher::handle_message(const std::string& text) {
+std::string BridgeDispatcher::handle_message(const std::string& text, WebSocketSession* session, std::weak_ptr<WebSocketSession> session_weak_ptr) { // NOLINT
     try {
         const auto request = json::parse(text);
         const auto type = request.value("type", std::string());
@@ -23,7 +25,7 @@ std::string BridgeDispatcher::handle_message(const std::string& text) {
         }
 
         if (type == "subscribe") {
-            return handle_subscribe(request.value("topic", std::string{}));
+            return handle_subscribe(request.value("topic", std::string{}), session, session_weak_ptr);
         }
 
         return make_status("error", "Unsupported command type: " + type);
@@ -59,11 +61,26 @@ Publisher& BridgeDispatcher::get_or_create_publisher(const std::string& topic) {
     return inserted_it_pub->second;
 }
 
-std::string BridgeDispatcher::handle_subscribe(const std::string& topic) {
+std::string BridgeDispatcher::handle_subscribe(const std::string& topic, WebSocketSession* session, std::weak_ptr<WebSocketSession> session_weak_ptr) {
     if (topic.empty()) {
         return make_status("error", "Subscribe failed: topic is empty");
     }
 
+    if (subscribers_.find(session) != subscribers_.end()) {
+        subscribers_.erase(session);
+    }
+
+    auto subscriber = node_.create_subscriber(
+        topic,
+        [this, session_weak_ptr, topic](const std::string& msg) {
+            boost::asio::post(ioc_, [topic, session_weak_ptr, msg]() {
+                if (auto session_shared_ptr = session_weak_ptr.lock()) {
+                    session_shared_ptr->send_message(make_message(topic, msg));
+                }
+            });
+        });
+
+    subscribers_.emplace(session, std::move(subscriber));
     return make_status("info", "Subscribe command received for " + topic);
 }
 

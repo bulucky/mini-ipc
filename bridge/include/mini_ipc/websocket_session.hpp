@@ -6,6 +6,8 @@
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/websocket/stream.hpp>
 
+#include <queue>
+
 namespace mini_ipc {
 class BridgeDispatcher;
 
@@ -21,6 +23,11 @@ public:
      *@brief: 等待客户端发起握手
      */
     void run();
+
+    /**
+     *@brief: 外部向该会话推送消息, 由 BridgeDispatcher 的 subscriber 回调触发
+     */
+    void send_message(std::string text);
 
 private:
     /**
@@ -42,7 +49,7 @@ private:
     /**
      *@brief: 发起异步写入
      */
-    void do_write(std::string text);
+    void do_write();
 
     /**
      *@brief: 写入回调函数
@@ -55,5 +62,8 @@ private:
     boost::beast::flat_buffer read_buffer_;
     BridgeDispatcher& dispatcher_;
     std::string write_buffer_;
+
+    std::queue<std::string> write_queue_;
+    bool writing_ = false;
 };
 } // namespace mini_ipc

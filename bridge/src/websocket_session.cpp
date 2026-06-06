@@ -18,10 +18,21 @@ WebSocketSession::WebSocketSession(boost::asio::ip::tcp::socket socket,
     : ws_(std::move(socket)), dispatcher_(dispather) {}
 
 void WebSocketSession::run() {
+    // tcp 握手
     ws_.async_accept(
         beast::bind_front_handler(
             &WebSocketSession::on_accept,
             shared_from_this()));
+}
+
+void WebSocketSession::send_message(std::string text) {
+    boost::asio::post(ws_.get_executor(),
+                      [shared_ptr = shared_from_this(), text = std::move(text)]() mutable {
+                          shared_ptr->write_queue_.push(std::move(text));
+                          if (!shared_ptr->writing_) {
+                              shared_ptr->do_write();
+                          }
+                      });
 }
 
 void WebSocketSession::on_accept(boost::system::error_code ec) {
@@ -54,20 +65,26 @@ void WebSocketSession::on_read(boost::system::error_code ec,
     }
 
     std::string request_msg = beast::buffers_to_string(read_buffer_.data());
-
     read_buffer_.consume(read_buffer_.size());
-
-    std::string respone_msg = dispatcher_.handle_message(request_msg);
-
-    do_write(respone_msg);
+    auto session_weak_ptr = weak_from_this();
+    std::string response_msg = dispatcher_.handle_message(request_msg, this, session_weak_ptr);
+    send_message(response_msg);
+    // std::string respone_msg = dispatcher_.handle_message(request_msg);
+    // do_write(respone_msg);
 }
 
-void WebSocketSession::do_write(std::string text) {
-    write_buffer_ = std::move(text);
+void WebSocketSession::do_write() {
+    // write_buffer_ = std::move(text);
+    if (write_queue_.empty()) {
+        writing_ = false;
+        return;
+    }
+    writing_ = true;
+    write_buffer_ = std::move(write_queue_.front());
+    write_queue_.pop();
 
     // 文本帧, json
     ws_.text(true);
-
     ws_.async_write(
         boost::asio::buffer(write_buffer_),
         beast::bind_front_handler(
@@ -85,7 +102,7 @@ void WebSocketSession::on_write(boost::system::error_code ec,
     }
 
     write_buffer_.clear();
-
+    do_write();
     do_read();
 }
 

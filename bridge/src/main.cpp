@@ -22,7 +22,7 @@ int main(int argc, char const* argv[]) {
         ipc_thread.detach();
 
         boost::asio::io_context ioc;
-        mini_ipc::BridgeDispatcher dispatcher(node);
+        mini_ipc::BridgeDispatcher dispatcher(node, ioc);
         mini_ipc::WebSocketServer server(
             ioc,
             boost::asio::ip::tcp::endpoint{
