@@ -82,22 +82,32 @@ Subscriber::Subscriber(std::shared_ptr<Impl> impl) : pimpl_(std::move(impl)) {}
 
 class Node::Impl {
 public:
+    // pending态的subscriber信息
+    struct PendingSubInfo {
+        // 管理等待 discovry 通知的 fd
+        std::unordered_map<int, std::string> pending_sub_topics;
+        std::unordered_map<int, Subscriber::CallbackType> pending_sub_callbacks;
+    };
+
+    // runing态的subcriber信息
+    struct SubInfo {
+        // fd --> topic
+        std::unordered_map<int, std::string> sub_topics;
+        // subscriber_fd --> buffer
+        std::unordered_map<int, std::vector<char>> sub_read_buffers;
+        // client_fd --> Subscriber::Callback
+        std::unordered_map<int, Subscriber::CallbackType> subscriber_callbacks;
+    };
+
     std::string name_;
     int epoll_fd_;
 
-    // 管理等待 discovry 通知的 fd
-    std::unordered_map<int, std::string> pending_sub_topics;
-    std::unordered_map<int, Subscriber::CallbackType> pending_sub_callbacks;
-
     // server_fd --> Publisher::Impl
     std::unordered_map<int, std::shared_ptr<Publisher::Impl>> publishers;
-    // client_fd --> Subscriber::Callback
-    std::unordered_map<int, Subscriber::CallbackType> subscriber_callbacks;
 
-    // subscriber_fd --> buffer
-    std::unordered_map<int, std::vector<char>> sub_read_buffers;
-    // fd --> topic
-    std::unordered_map<int, std::string> sub_topics;
+    PendingSubInfo pending_sub_infos;
+
+    SubInfo sub_infos;
 
     Impl(std::string name)
         : name_(std::move(name)) {
@@ -117,7 +127,6 @@ public:
      * @return: std::string "" --> 注册成功，buffer --> 端口
      */
     std::string talk_to_discovery_daemon(int& sc_fd, const std::string& msg) {
-        // int sc_fd;
         if ((sc_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
             perror("socket");
             return "";
@@ -151,7 +160,6 @@ public:
             close(sc_fd);
             return "";
         }
-        // close(sc_fd);
 
         return std::string{buffer};
     }
@@ -180,9 +188,9 @@ public:
         ev.data.fd = client_fd;
         epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &ev);
 
-        subscriber_callbacks[client_fd] = std::move(callback);
-        sub_topics[client_fd] = topic_name;
-        sub_read_buffers[client_fd] = std::vector<char>{};
+        sub_infos.sub_topics[client_fd] = topic_name;
+        sub_infos.subscriber_callbacks[client_fd] = std::move(callback);
+        sub_infos.sub_read_buffers[client_fd] = std::vector<char>{};
 
         return client_fd;
     }
@@ -197,8 +205,8 @@ public:
 
         talk_to_discovery_daemon(wt_fd, "SUB " + topic_name);
 
-        pending_sub_topics[wt_fd] = std::move(topic_name);
-        pending_sub_callbacks[wt_fd] = std::move(callback);
+        pending_sub_infos.pending_sub_topics[wt_fd] = std::move(topic_name);
+        pending_sub_infos.pending_sub_callbacks[wt_fd] = std::move(callback);
 
         if (ev == nullptr) {
             struct epoll_event ev{};
@@ -310,8 +318,8 @@ public:
             return std::make_shared<Subscriber::Impl>(client_fd);
         } else if (strcmp(response.substr(0, 4).c_str(), "WAIT") == 0) {
             // 加入等待列表
-            pending_sub_topics[sc_fd] = topic_name;
-            pending_sub_callbacks[sc_fd] = std::move(callback);
+            pending_sub_infos.pending_sub_topics[sc_fd] = topic_name;
+            pending_sub_infos.pending_sub_callbacks[sc_fd] = std::move(callback);
 
             ev.data.fd = sc_fd;
             epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sc_fd, &ev);
@@ -349,20 +357,20 @@ public:
                     }
                 }
                 // Subscriber 的 client_fd有接受到数据
-                else if (subscriber_callbacks.find(active_fd) != subscriber_callbacks.end()) {
+                else if (sub_infos.subscriber_callbacks.find(active_fd) != sub_infos.subscriber_callbacks.end()) {
                     char buffer[4096] = {0};
                     int read_bytes = read(active_fd, buffer, sizeof(buffer));
 
                     // EOF, publisher offline
                     if (read_bytes == 0) {
-                        auto topic_name = std::move(sub_topics[active_fd]);
-                        auto callback = std::move(subscriber_callbacks[active_fd]);
+                        auto topic_name = std::move(sub_infos.sub_topics[active_fd]);
+                        auto callback = std::move(sub_infos.subscriber_callbacks[active_fd]);
 
                         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
                         close(active_fd);
-                        subscriber_callbacks.erase(active_fd);
-                        sub_topics.erase(active_fd);
-                        sub_read_buffers.erase(active_fd);
+                        sub_infos.subscriber_callbacks.erase(active_fd);
+                        sub_infos.sub_topics.erase(active_fd);
+                        sub_infos.sub_read_buffers.erase(active_fd);
 
                         std::cout << "[Node: " << name_ << "] Publisher disconnected...\n";
 
@@ -371,8 +379,8 @@ public:
                         std::string response = talk_to_discovery_daemon(sc_fd, "SUB " + topic_name);
                         if (response.empty() || response.compare(0, 4, "WAIT") == 0) {
                             // publisher 仍未上线, 进入pending态
-                            pending_sub_topics[sc_fd] = topic_name;
-                            pending_sub_callbacks[sc_fd] = std::move(callback);
+                            pending_sub_infos.pending_sub_topics[sc_fd] = topic_name;
+                            pending_sub_infos.pending_sub_callbacks[sc_fd] = std::move(callback);
 
                             struct epoll_event ev{};
                             ev.data.fd = sc_fd;
@@ -395,12 +403,15 @@ public:
                     }
                     // error handle
                     else if (read_bytes == -1) {
+                        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+                            continue;
+                        }
                         perror("read");
                         break;
                     }
                     // receive data and parse
                     else {
-                        auto& sub_buffer = sub_read_buffers[active_fd];
+                        auto& sub_buffer = sub_infos.sub_read_buffers[active_fd];
                         sub_buffer.insert(sub_buffer.end(), buffer, buffer + read_bytes);
                         // parse
                         while (sub_buffer.size() >= 4) {
@@ -414,38 +425,42 @@ public:
                             }
 
                             std::string msg(sub_buffer.data() + 4, msg_len);
-                            subscriber_callbacks[active_fd](msg);
+                            sub_infos.subscriber_callbacks[active_fd](msg);
 
                             sub_buffer.erase(sub_buffer.begin(), sub_buffer.begin() + 4 + msg_len);
                         }
                     }
                 }
                 // pending态对应的publisher online
-                else if (pending_sub_topics.find(active_fd) != pending_sub_topics.end()) {
+                else if (pending_sub_infos.pending_sub_topics.find(active_fd) != pending_sub_infos.pending_sub_topics.end()) {
                     char buffer[1024] = {};
                     int read_bytes = read(active_fd, buffer, sizeof(buffer));
-                    // daemon discovey offline
-                    if (read_bytes <= 0) {
+
+                    // error handle
+                    if (read_bytes == 0) {
+                        continue;
+                    } else if (read_bytes == -1) {
+                        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+                            continue;
+                        }
                         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
                         close(active_fd);
 
-                        pending_sub_topics.erase(active_fd);
-                        pending_sub_callbacks.erase(active_fd);
-
-                        continue;
+                        pending_sub_infos.pending_sub_topics.erase(active_fd);
+                        pending_sub_infos.pending_sub_callbacks.erase(active_fd);
                     }
 
                     std::string msg(buffer, read_bytes);
                     if (strcmp(msg.substr(0, 4).c_str(), "PORT") == 0) {
                         // 关闭查询fd, 新建fd用于通信
                         unsigned short target_port = std::stoi(msg.substr(5));
-                        auto callback = std::move(pending_sub_callbacks[active_fd]);
-                        auto topic_name = std::move(pending_sub_topics[active_fd]);
+                        auto topic_name = std::move(pending_sub_infos.pending_sub_topics[active_fd]);
+                        auto callback = std::move(pending_sub_infos.pending_sub_callbacks[active_fd]);
 
                         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, active_fd, nullptr);
                         close(active_fd);
-                        pending_sub_topics.erase(active_fd);
-                        pending_sub_callbacks.erase(active_fd);
+                        pending_sub_infos.pending_sub_topics.erase(active_fd);
+                        pending_sub_infos.pending_sub_callbacks.erase(active_fd);
 
                         int client_fd = 0;
                         if ((client_fd = connect_to_publisher(target_port, topic_name, callback)) == -1) {
