@@ -13,7 +13,12 @@
 
 int main(int argc, char const* argv[]) {
     try {
-        mini_ipc::ParamManager::instance().load("core/config/comm.yaml");
+        // mini_ipc::ParamManager::instance().load("core/config/comm.yaml");
+        auto& params = mini_ipc::ParamManager::instance();
+        if (!params.load("core/config/comm.yaml")) {
+            std::cerr << "Failed to load config, using defaults.\n";
+        }
+
         mini_ipc::Node node("dashboard_bridge");
 
         std::thread ipc_thread([&node]() {

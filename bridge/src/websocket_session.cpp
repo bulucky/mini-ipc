@@ -75,12 +75,9 @@ void WebSocketSession::on_read(boost::system::error_code ec,
     auto session_weak_ptr = weak_from_this();
     std::string response_msg = dispatcher_.handle_message(request_msg, this, session_weak_ptr);
     send_message(response_msg);
-    // std::string respone_msg = dispatcher_.handle_message(request_msg);
-    // do_write(respone_msg);
 }
 
 void WebSocketSession::do_write() {
-    // write_buffer_ = std::move(text);
     if (write_queue_.empty()) {
         writing_ = false;
         return;

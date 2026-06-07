@@ -8,4 +8,8 @@ publisher:
 
 runtime:
   epoll_max_events: 10
+
+ipc_bridge: 
+  ip: 127.0.0.1
+  port: 9000
   
