@@ -47,6 +47,10 @@ void WebSocketSession::on_accept(boost::system::error_code ec) {
 }
 
 void WebSocketSession::do_read() {
+    if (reading_) {
+        return;
+    }
+    reading_ = true;
     ws_.async_read(
         read_buffer_,
         beast::bind_front_handler(
@@ -57,6 +61,8 @@ void WebSocketSession::do_read() {
 void WebSocketSession::on_read(boost::system::error_code ec,
                                std::size_t bytes_transferred) {
     (void)bytes_transferred;
+
+    reading_ = false;
 
     if (ec == websocket::error::closed) {
         std::cerr << "[WebSocketSession] read failed: "
@@ -103,7 +109,10 @@ void WebSocketSession::on_write(boost::system::error_code ec,
 
     write_buffer_.clear();
     do_write();
-    do_read();
+
+    if (!writing_) {
+        do_read();
+    }
 }
 
 } // namespace mini_ipc

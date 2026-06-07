@@ -57,7 +57,6 @@ private:
     void on_write(boost::system::error_code ec,
                   std::size_t bytes_transferred);
 
-
     boost::beast::websocket::stream<boost::beast::tcp_stream> ws_;
     boost::beast::flat_buffer read_buffer_;
     BridgeDispatcher& dispatcher_;
@@ -65,5 +64,6 @@ private:
 
     std::queue<std::string> write_queue_;
     bool writing_ = false;
+    bool reading_ = false;
 };
 } // namespace mini_ipc

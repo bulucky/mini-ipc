@@ -13,7 +13,9 @@ using json = nlohmann::json;
 BridgeDispatcher::BridgeDispatcher(Node& node, boost::asio::io_context& ioc)
     : node_(node), ioc_(ioc) {}
 
-std::string BridgeDispatcher::handle_message(const std::string& text, WebSocketSession* session, std::weak_ptr<WebSocketSession> session_weak_ptr) { // NOLINT
+std::string BridgeDispatcher::handle_message(const std::string& text,
+                                             WebSocketSession* session,
+                                             std::weak_ptr<WebSocketSession> session_weak_ptr) { // NOLINT
     try {
         const auto request = json::parse(text);
         const auto type = request.value("type", std::string());
@@ -25,7 +27,7 @@ std::string BridgeDispatcher::handle_message(const std::string& text, WebSocketS
         }
 
         if (type == "subscribe") {
-            return handle_subscribe(request.value("topic", std::string{}), session, session_weak_ptr);
+            return handle_subscribe(request.value("topic", std::string{}), session, session_weak_ptr); // NOLINT
         }
 
         return make_status("error", "Unsupported command type: " + type);
@@ -61,7 +63,9 @@ Publisher& BridgeDispatcher::get_or_create_publisher(const std::string& topic) {
     return inserted_it_pub->second;
 }
 
-std::string BridgeDispatcher::handle_subscribe(const std::string& topic, WebSocketSession* session, std::weak_ptr<WebSocketSession> session_weak_ptr) {
+std::string BridgeDispatcher::handle_subscribe(const std::string& topic,
+                                               WebSocketSession* session,
+                                               std::weak_ptr<WebSocketSession> session_weak_ptr) { // NOLINT
     if (topic.empty()) {
         return make_status("error", "Subscribe failed: topic is empty");
     }
