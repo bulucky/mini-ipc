@@ -43,6 +43,9 @@ cmake -B build -G Ninja && cmake --build build
 
 # 终端 3: 启动发布者
 ./build/core/examples/talker
+
+# 终端 4: 启动 Bridge（Dashboard 通信需要）
+./build/bridge/mini_ipc_bridge
 ```
 
 ### 启动 Dashboard
@@ -51,48 +54,63 @@ cmake -B build -G Ninja && cmake --build build
 cd dashboard && npm install && npm run dev
 ```
 
-访问 `http://127.0.0.1:5173`，连接到 `ws://127.0.0.1:9000`（需先运行 Bridge）。
+访问 `http://127.0.0.1:5173`，连接到 `ws://127.0.0.1:9000`。
 
 ## 核心设计
 
 ### Node（事件循环核心）
 
-单一 epoll 实例管理三种 fd：
+单一 epoll 实例管理三种 fd，对应两类 subscriber 状态：
 
-```
-epoll_fd
-├── Publisher server_fd   — accept subscriber 连接
-├── Subscriber client_fd  — 接收消息，帧解析，触发回调
-└── Pending sc_fd         — 等待 daemon 通知 publisher 上线
+| 状态 | 结构体 | 管理 fd 类型 |
+|------|--------|--------------|
+| Running | `SubInfo {topic, callback, read_buffer}` | Publisher 直连 client_fd |
+| Pending | `PendingSubInfo {topic, callback}` | Daemon 等待连接 sc_fd |
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: daemon 返回 WAITING
+    Pending --> Running: daemon 通知 PORT
+    Running --> Pending: publisher 断连(EOF)
+    Running --> Pending: connect 失败
+    Pending --> Pending: connect 失败
 ```
 
 ### Discovery Daemon（发现与注册中心）
 
-```
-TopicEntry { port, port_available, publisher_fd, waiting_fds }
+```cpp
+struct TopicEntry {
+    std::string port;
+    bool port_available;       // publisher 是否在线
+    int publisher_fd;          // publisher 长连接（监控存活）
+    std::vector<int> waiting_fds; // 等待通知的 subscriber
+};
 ```
 
-- Publisher 通过长连接注册，daemon 监控其存活
-- Subscriber 查询时返回端口（publisher 在线）或进入等待（publisher 离线）
-- Publisher 上线时通知所有等待中的 subscriber
+- Publisher 通过长连接注册，daemon 通过检测 EOF 感知下线
+- Subscriber 查询时：publisher 在线则返回端口；否则加入 waiting 等待通知
+- Publisher 上线时通知所有 waiting 中的 subscriber
 
 ### 通信协议
 
 | 通道 | 协议 | 帧格式 |
 |------|------|--------|
-| Pub/Sub 数据 | TCP 直连 | 4 字节大端长度 + payload |
+| Pub/Sub 数据 | TCP 直连 | 4 字节大端长度 + payload（writev / 缓冲区拼帧） |
 | Daemon 注册/发现 | TCP | 文本命令：PUB / SUB / OK / WAITING / PORT |
+| Bridge ↔ Dashboard | WebSocket | JSON：`{type, topic, payload, level, message}` |
 
-### Subscriber 状态机
+### Bridge 跨线程通信
 
 ```
-P2P Connected ──EOF──→ Pending ──PORT──→ P2P Connected
-     │                    │                    │
-     └──connect失败──→   Pending ←──connect失败──┘
+epoll 线程 (Node::spin)              io_context 线程 (Boost.Asio)
+─────────────────────                ─────────────────────────
+subscriber_callback(msg)             
+  → boost::asio::post(ioc_, ...) ──→ lambda 执行
+                                      → session->send_message(json)
+                                        → write_queue → async_write → Dashboard
 ```
 
-- **P2P Connected**: 直连 publisher，通过 epoll 接收帧消息
-- **Pending**: 连在 daemon 上等待 PORT 通知
+Subscriber 回调在 epoll 线程触发，通过 `boost::asio::post` 投递到 io_context 线程安全写 WebSocket。
 
 ## 已实现功能
 
@@ -100,24 +118,35 @@ P2P Connected ──EOF──→ Pending ──PORT──→ P2P Connected
 |------|------|
 | Pub/Sub 基础通信 | Publisher 创建 TCP server，Subscriber 直连 |
 | Discovery 注册中心 | 支持 PUB/SUB/WAITING/PORT，publisher 存活监控 |
-| 帧协议 | writev 写入，缓冲区拼帧读取，解决 TCP 粘包拆包 |
-| SIGPIPE 处理 | Publisher 安全处理 subscriber 掉线 |
+| TCP 帧协议 | writev 写入，缓冲区拼帧读取，解决粘包拆包 |
 | 断连重订阅 | Subscriber 检测 EOF 后自动查询 daemon 重连 |
-| connect 失败 fallback | connect 失败时回退到 pending 等待模式 |
-| WebSocket Bridge | publish 通道可用（subscribe 待实现） |
-| Dashboard | 连接 / 订阅 / 发布 / 消息列表 / 日志面板 |
+| connect 失败 fallback | 三处 connect 失败均回退到 pending 等待 |
+| SIGPIPE 处理 | Publisher 安全处理 subscriber 掉线（SIG_IGN） |
+| Bridge 双向通路 | publish 和 subscribe 均完整实现 |
+| Dashboard | 连接 / 订阅 / 发布 / 消息列表 / 日志面板，支持深色/浅色主题 |
 | CI | GitHub Actions 构建 + 冒烟测试 |
 
 ## 已知问题
 
 | 优先级 | 位置 | 问题 |
 |--------|------|------|
-| 中 | daemon | `read_bytes <= 0` 对 publisher_fd 未清理 epoll/close |
-| 中 | daemon | 旧 publisher fd 被覆盖时未清理，epoll 残留 |
-| 中 | daemon | nested loop 在 read_bytes <= 0 处理中效率低 |
-| 低 | node.cpp | `read_bytes == -1` 未清理 map |
-| 低 | bridge | `handle_subscribe` 未创建实际 Subscriber |
+| 中 | daemon | publisher_fd 掉线时未清理 epoll DEL/close，仅标记 port_available=false |
+| 中 | daemon | 旧 publisher_fd 被新注册覆盖时未清理，导致 epoll 残留 |
 | 低 | daemon | 文本协议无帧定界 |
+| 低 | bridge | session 断开时 subscribers_ 中的对应 entry 未清理 |
+| 低 | node.cpp | `events` 数组使用 VLA（非标准 C++） |
+
+## 下一步优化方向
+
+| 方向 | 说明 | 工作量 |
+|------|------|--------|
+| **Daemon epoll 清理** | publisher_fd 掉线或覆盖时清理 DELL/close | 小 |
+| **Daemon 协议帧化** | 统一加长度前缀，消除短消息拆包隐患 | 中 |
+| **Bridge unsubscribe** | 支持 Dashboard 取消订阅，清理 subscribers_ | 小 |
+| **Session 断连清理** | 客户端断开时清理 BridgeDispatcher 中的 Subscriber 缓存 | 小 |
+| **单元测试** | 引入 Google Test，覆盖 ParamManager、帧解析、状态机 | 中 |
+| **Core VLA 修复** | `epoll_wait` events 改用 `std::vector` | 小 |
+| **Bridge 重构** | `reading_`/`writing_` 状态机可改用 `strand` 标准化 | 中 |
 
 ## 文件结构
 

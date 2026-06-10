@@ -7,9 +7,13 @@ AGENTS.md
 
 # claude
 .claude
+
+# gemini
 .gemini
 
 # dashboard
 dashboard/node_modules
 dashboard/dist
 
+# plugin
+.VSCodeCounter

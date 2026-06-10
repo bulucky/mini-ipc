@@ -62,6 +62,8 @@ int main(int argc, char const* argv[]) {
 
     // topic --> port
     std::unordered_map<std::string, TopicEntry> topic_registry;
+    // fd --> publisher fd
+    std::unordered_map<int, std::string> publisher_fds;
 
     int epoll_fd_discovery = epoll_create1(0);
     struct epoll_event ev{};
@@ -90,24 +92,28 @@ int main(int argc, char const* argv[]) {
             ssize_t read_bytes = read(active_fd, buffer, sizeof(buffer));
             // epoll管理的fd存在错误或掉线, TODO:当前仅考虑掉线情况
             if (read_bytes <= 0) {
-                for (auto& entry : topic_registry) {
-                    // 检查是否是publisher掉线
-                    if (entry.second.publisher_fd == active_fd) {
-                        entry.second.port_avilable = false;
-                    }
-                    // subscriber掉线清理缓存
-                    else {
-                        // 清理缓存
-                        for (auto& [topic, entry] : topic_registry) {
-                            auto& waiting_fds = entry.waiting_fds;
-                            waiting_fds.erase(std::remove(waiting_fds.begin(), waiting_fds.end(), active_fd),
-                                              waiting_fds.end());
-                        }
-                        epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, active_fd, nullptr);
-                        close(active_fd);
+                // 首先判断是不是publisher
+                auto it_fd = publisher_fds.find(active_fd);
+                if (it_fd != publisher_fds.end()) {
+                    topic_registry[it_fd->second].port_avilable = false;
+                    topic_registry[it_fd->second].publisher_fd = -1;
+                    epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, it_fd->first, nullptr);
+                    close(it_fd->first);
+                    publisher_fds.erase(it_fd);
+
+                    continue;
+                }
+                // 判断是否为waitting_fds, 所有遍历完不是waitting_fd那就subscriber
+                for (auto& [topic, entry] : topic_registry) {
+                    auto& waiting_fds = entry.waiting_fds;
+                    auto it_fd = std::find(waiting_fds.begin(), waiting_fds.end(), active_fd);
+                    if (it_fd != waiting_fds.end()) {
+                        waiting_fds.erase(it_fd);
+                        break;
                     }
                 }
-
+                epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, active_fd, nullptr);
+                close(active_fd);
                 continue;
             }
 
@@ -117,9 +123,18 @@ int main(int argc, char const* argv[]) {
             if (std::strcmp(msg.substr(0, 3).c_str(), "PUB") == 0) {
                 auto [topic, port] = parse_pub(msg);
                 auto& entry = topic_registry[topic];
+
+                // auto old_fd = publisher_fds.find(entry.publisher_fd);
+                // if (old_fd != publisher_fds.end()) {
+                //     epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, entry.publisher_fd, nullptr);
+                //     close(entry.publisher_fd);
+                //     publisher_fds.erase(old_fd);
+                // }
+
                 entry.port = port;
                 entry.port_avilable = true;
                 entry.publisher_fd = active_fd;
+                publisher_fds[active_fd] = topic;
 
                 // 通知在等待该话题的订阅者, 话题的发布者已上线
                 std::string notify_msg = "PORT " + port;
