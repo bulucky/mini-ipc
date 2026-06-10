@@ -124,12 +124,22 @@ int main(int argc, char const* argv[]) {
                 auto [topic, port] = parse_pub(msg);
                 auto& entry = topic_registry[topic];
 
-                // auto old_fd = publisher_fds.find(entry.publisher_fd);
-                // if (old_fd != publisher_fds.end()) {
-                //     epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, entry.publisher_fd, nullptr);
-                //     close(entry.publisher_fd);
-                //     publisher_fds.erase(old_fd);
-                // }
+                // 已有正常运行的publisher
+                // TODO: publisher做对应处理
+                if (entry.port_avilable) {
+                    write(active_fd, "REJECT", 6);
+                    epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, active_fd, nullptr);
+                    close(active_fd);
+
+                    continue;
+                }
+
+                // 存在publisher但是状态异常, 崩溃遗留
+                if (entry.publisher_fd > 0) {
+                    epoll_ctl(epoll_fd_discovery, EPOLL_CTL_DEL, entry.publisher_fd, nullptr);
+                    close(entry.publisher_fd);
+                    publisher_fds.erase(entry.publisher_fd);
+                }
 
                 entry.port = port;
                 entry.port_avilable = true;
