@@ -17,3 +17,4 @@ target_link_libraries(mini_ipc_core
 )
 
 add_subdirectory(examples)
+add_subdirectory(tests)
